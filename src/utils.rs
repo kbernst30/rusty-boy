@@ -108,6 +108,18 @@ pub const SELECT_BUTTON: u8 = 2;
 pub const B_BUTTON: u8 = 1;
 pub const A_BUTTON: u8 = 0;
 
+// Flags
+// The F register contains flags for the CPU. The following bits
+// represent the following flags:
+// 7	z	Zero flag
+// 6	n	Subtraction flag (BCD)
+// 5	h	Half Carry flag (BCD)
+// 4	c	Carry flag
+pub const ZERO_FLAG: usize = 7;
+pub const SUBTRACTION_FLAG: usize = 6;
+pub const HALF_CARRY_FLAG: usize = 5;
+pub const CARRY_FLAG: usize = 4;
+
 pub fn is_bit_set(data: &Byte, position: usize) -> bool {
     // Return true if bit at position is
     // set in data, false otherwise

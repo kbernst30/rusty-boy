@@ -139,7 +139,7 @@ impl Mmu {
     }
 
     pub fn update_scanline(&mut self) {
-        self.memory[CURRENT_SCANLINE_ADDR as usize].wrapping_add(1);
+        self.memory[CURRENT_SCANLINE_ADDR as usize] = self.memory[CURRENT_SCANLINE_ADDR as usize].wrapping_add(1);
     }
 
     pub fn reset_scanline(&mut self) {
@@ -171,11 +171,11 @@ impl Mmu {
     }
 
     pub fn increment_timer_register(&mut self) {
-        self.memory[TIMER_ADDR as usize].wrapping_add(1);
+        self.memory[TIMER_ADDR as usize] = self.memory[TIMER_ADDR as usize].wrapping_add(1);
     }
 
     pub fn increment_divider_register(&mut self) {
-        self.memory[DIVIDER_REGISTER_ADDR as usize].wrapping_add(1);
+        self.memory[DIVIDER_REGISTER_ADDR as usize] = self.memory[DIVIDER_REGISTER_ADDR as usize].wrapping_add(1);
     }
 
     fn load_rom(&mut self) {

@@ -2,7 +2,9 @@
 extern crate lazy_static;
 extern crate sdl2;
 
+pub mod cpu;
 pub mod mmu;
+pub mod ops;
 pub mod rom;
 pub mod rusty_boy;
 pub mod utils;
@@ -47,7 +49,7 @@ fn main() {
 
     // Setup emulator
     let args: Vec<String> = env::args().collect();
-    let rusty_boy = RustyBoy::new(&args[1]);
+    let mut rusty_boy = RustyBoy::new(&args[1]);
 
     'running: loop {
         rusty_boy.run();

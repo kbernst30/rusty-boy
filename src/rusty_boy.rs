@@ -1,10 +1,10 @@
+use crate::cpu::*;
 use crate::mmu::*;
 use crate::rom::*;
 use crate::utils::*;
 
-#[derive(Debug)]
 pub struct RustyBoy {
-    mmu: Mmu,
+    cpu: Cpu,
 }
 
 impl RustyBoy {
@@ -16,14 +16,27 @@ impl RustyBoy {
         let mut mmu = Mmu::new(rom);
         mmu.reset();
 
+        let mut cpu = Cpu::new(mmu);
+        cpu.reset();
+
         RustyBoy {
-            mmu: mmu
+            cpu: cpu
         }
 
     }
 
-    pub fn run(&self) {
+    pub fn run(&mut self) {
+        let mut frame_cycles = 0;
 
+        while frame_cycles < MAX_CYCLES_PER_FRAME {
+            let cycles = self.cpu.execute();
+            frame_cycles += cycles as usize;
+
+            // TODO interrupts
+            // interrupt = self.interrupts.get_servicable_interrupt()
+            // if interrupt is not None:
+            //     self.cpu.service_interrupt(interrupt)
+        }
     }
 
 }
