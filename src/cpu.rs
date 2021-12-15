@@ -1387,6 +1387,26 @@ impl Cpu {
         }
     }
 
+    fn do_shift_right(&mut self, opcode: &OpCode, maintain_msb: bool) -> u8 {
+        fn do_shift(val: &mut Byte, maintain_msb: bool) {
+            let most_significant_bit = get_bit_val(&val, 7);
+            let least_significant_bit = get_bit_val(&val, 0);
+            let mut res = *val >> 1;
+            if maintain_msb {
+                res |= (most_significant_bit << 7);
+            }
+
+            *val = res;
+        }
+
+        // self.update_zero_flag(res == 0);
+        // self.update_carry_flag(least_significant_bit == 1);
+        // self.update_half_carry_flag(false);
+        // self.update_sub_flag(false);
+
+        opcode.cycles
+    }
+
     fn do_sub(&mut self, opcode: &OpCode, with_carry: bool) -> u8 {
         unsafe {
             let to_sub = match opcode.code {
