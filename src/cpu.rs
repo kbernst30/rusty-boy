@@ -1,3 +1,6 @@
+use std::fs::OpenOptions;
+use std::io::prelude::*;
+
 use crate::mmu::*;
 use crate::ops::*;
 use crate::utils::*;
@@ -36,6 +39,7 @@ pub struct Cpu {
     halted: bool,
     cycle_tracker: u8,
     last_op: Option<Operation>,
+    debug_ctr: usize
 }
 
 impl Cpu {
@@ -56,6 +60,7 @@ impl Cpu {
             halted: false,
             cycle_tracker: 0,
             last_op: None,
+            debug_ctr: 0
         }
 
     }
@@ -84,6 +89,11 @@ impl Cpu {
             .get(&op)
             .expect(&format!("OpCode 0x{:02x} is not recognized", op));
 
+        if self.debug_ctr < 1258895 {
+            // self.debug();
+            self.debug_ctr += 1;
+        }
+
         // If in HALT mode, don't execute any instructions and incremeny by 1 T-cycle (4 M-cycles)
         if self.halted {
             self.sync_cycles(4);
@@ -95,7 +105,34 @@ impl Cpu {
         let cycles = match opcode.operation {
             Operation::ADC => self.do_add(&opcode, true),
             Operation::ADD => self.do_add(&opcode, false),
+            Operation::ADD_16_BIT => self.do_add_16_bit(&opcode),
+            Operation::AND => self.do_and(&opcode),
+            Operation::CALL => self.do_call(&opcode),
+            Operation::CCF => self.do_complement_carry(&opcode),
+            Operation::CP => self.do_compare(&opcode),
+            Operation::CPL => self.do_complement(&opcode),
+            Operation::DAA => self.do_daa(&opcode),
+            Operation::DEC => self.do_decrement(&opcode),
+            Operation::DEC_16_BIT => self.do_decrement_16_bit(&opcode),
+            Operation::DI => self.do_disable_interrupts(&opcode),
+            Operation::EI => self.do_enable_interrupts(&opcode),
+            Operation::HALT => self.do_halt(&opcode),
+            Operation::INC => self.do_increment(&opcode),
+            Operation::INC_16_BIT => self.do_increment_16_bit(&opcode),
+            Operation::JP => self.do_jump(&opcode),
+            Operation::JR => self.do_jump_relative(&opcode),
+            Operation::LD => self.do_load(&opcode),
+            Operation::LDH => self.do_load_h(&opcode),
             Operation::NOP => opcode.cycles,
+            Operation::OR => self.do_or(&opcode),
+            Operation::POP => self.do_pop(&opcode),
+            Operation::PREFIX => self.do_prefix(),
+            Operation::PUSH => self.do_push(&opcode),
+            Operation::RET => self.do_return(&opcode),
+            Operation::RETI => self.do_return(&opcode),
+            Operation::SBC => self.do_sub(&opcode, true),
+            Operation::SUB => self.do_sub(&opcode, false),
+            Operation::XOR => self.do_xor(&opcode),
             _ => panic!("Operation not found - {}", opcode.operation)
         };
 
@@ -214,7 +251,7 @@ impl Cpu {
     }
 
     fn push_byte_to_stack(&mut self, data: Byte) {
-        self.stack_pointer.wrapping_sub(1);
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
         self.write_memory(self.stack_pointer, data);
     }
 
@@ -234,7 +271,7 @@ impl Cpu {
     fn pop_word_from_stack(&mut self) -> Word {
         let lo = self.pop_byte_from_stack();
         let hi = self.pop_byte_from_stack();
-        ((hi << 8) as Word) | lo as Word
+        ((hi as Word) << 8) | lo as Word
     }
 
     fn toggle_interrupts_enabled(&mut self) {
@@ -289,6 +326,1161 @@ impl Cpu {
             self.af.parts.hi = (res & 0xFF) as Byte;
 
             opcode.cycles
+        }
+    }
+
+    fn do_add_16_bit(&mut self, opcode: &OpCode) -> u8 {
+        if opcode.code == 0xE8 {
+            // 16 bit arithmetic but it doesn't follow the same flag conventions
+            let offset = self.get_next_byte_signed();
+            self.update_zero_flag(false);
+            self.update_sub_flag(false);
+
+            if offset > 0 {
+                self.update_carry_flag((self.stack_pointer & 0xFF) + ((offset as Word) & 0xFF) > 0xFF);
+                self.update_half_carry_flag((self.stack_pointer & 0xF) + ((offset as Word) & 0xF) > 0xF);
+                self.stack_pointer = self.stack_pointer.wrapping_add(offset as Word);
+            } else {
+                self.update_carry_flag((self.stack_pointer & 0xFF) - ((offset.abs() as Word) & 0xFF) > 0xFF);
+                self.update_half_carry_flag((self.stack_pointer & 0xF) - ((offset.abs() as Word) & 0xF) > 0xF);
+                self.stack_pointer = self.stack_pointer.wrapping_sub(offset.abs() as Word);
+            }
+        } else {
+            unsafe {
+                let to_add = match opcode.code {
+                    0x09 => self.bc.val,
+                    0x19 => self.de.val,
+                    0x29 => self.hl.val,
+                    0x39 => self.stack_pointer,
+                    _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+                };
+
+                self.update_zero_flag(false);
+                self.update_carry_flag((self.hl.val as usize) + (to_add as usize) > 0xFFFF);
+                self.update_half_carry_flag((self.hl.val & 0xFFF) + (to_add & 0xFFF) & 0x1000 > 0);
+                self.hl.val = self.hl.val.wrapping_add(to_add);
+            }
+        }
+
+        opcode.cycles
+    }
+
+    fn do_and(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let to_and = match opcode.code {
+                0xA0 => self.bc.parts.hi,
+                0xA1 => self.bc.parts.lo,
+                0xA2 => self.de.parts.hi,
+                0xA3 => self.de.parts.lo,
+                0xA4 => self.hl.parts.hi,
+                0xA5 => self.hl.parts.lo,
+                0xA6 => self.read_memory(self.hl.val),
+                0xA7 => self.af.parts.hi,
+                0xE6 => self.get_next_byte(),
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.af.parts.hi &= to_and;
+
+            self.update_zero_flag(self.af.parts.hi == 0);
+            self.update_half_carry_flag(true);
+            self.update_sub_flag(false);
+            self.update_carry_flag(false);
+
+            opcode.cycles
+        }
+    }
+
+    fn do_bit(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0x40 => self.update_zero_flag(!is_bit_set(&self.bc.parts.hi, 0)),
+                0x41 => self.update_zero_flag(!is_bit_set(&self.bc.parts.lo, 0)),
+                0x42 => self.update_zero_flag(!is_bit_set(&self.de.parts.hi, 0)),
+                0x43 => self.update_zero_flag(!is_bit_set(&self.de.parts.lo, 0)),
+                0x44 => self.update_zero_flag(!is_bit_set(&self.hl.parts.hi, 0)),
+                0x45 => self.update_zero_flag(!is_bit_set(&self.hl.parts.lo, 0)),
+                0x46 => {
+                    self.sync_cycles(4);
+                    let val = self.read_memory(self.hl.val);
+                    self.update_zero_flag(!is_bit_set(&val, 0));
+                },
+                0x47 => self.update_zero_flag(!is_bit_set(&self.af.parts.hi, 0)),
+                0x48 => self.update_zero_flag(!is_bit_set(&self.bc.parts.hi, 1)),
+                0x49 => self.update_zero_flag(!is_bit_set(&self.bc.parts.lo, 1)),
+                0x4A => self.update_zero_flag(!is_bit_set(&self.de.parts.hi, 1)),
+                0x4B => self.update_zero_flag(!is_bit_set(&self.de.parts.lo, 1)),
+                0x4C => self.update_zero_flag(!is_bit_set(&self.hl.parts.hi, 1)),
+                0x4D => self.update_zero_flag(!is_bit_set(&self.hl.parts.lo, 1)),
+                0x4E => {
+                    self.sync_cycles(4);
+                    let val = self.read_memory(self.hl.val);
+                    self.update_zero_flag(!is_bit_set(&val, 1));
+                },
+                0x4F => self.update_zero_flag(!is_bit_set(&self.af.parts.hi, 1)),
+                0x50 => self.update_zero_flag(!is_bit_set(&self.bc.parts.hi, 2)),
+                0x51 => self.update_zero_flag(!is_bit_set(&self.bc.parts.lo, 2)),
+                0x52 => self.update_zero_flag(!is_bit_set(&self.de.parts.hi, 2)),
+                0x53 => self.update_zero_flag(!is_bit_set(&self.de.parts.lo, 2)),
+                0x54 => self.update_zero_flag(!is_bit_set(&self.hl.parts.hi, 2)),
+                0x55 => self.update_zero_flag(!is_bit_set(&self.hl.parts.lo, 2)),
+                0x56 => {
+                    self.sync_cycles(4);
+                    let val = self.read_memory(self.hl.val);
+                    self.update_zero_flag(!is_bit_set(&val, 2));
+                },
+                0x57 => self.update_zero_flag(!is_bit_set(&self.af.parts.hi, 2)),
+                0x58 => self.update_zero_flag(!is_bit_set(&self.bc.parts.hi, 3)),
+                0x59 => self.update_zero_flag(!is_bit_set(&self.bc.parts.lo, 3)),
+                0x5A => self.update_zero_flag(!is_bit_set(&self.de.parts.hi, 3)),
+                0x5B => self.update_zero_flag(!is_bit_set(&self.de.parts.lo, 3)),
+                0x5C => self.update_zero_flag(!is_bit_set(&self.hl.parts.hi, 3)),
+                0x5D => self.update_zero_flag(!is_bit_set(&self.hl.parts.lo, 3)),
+                0x5E => {
+                    self.sync_cycles(4);
+                    let val = self.read_memory(self.hl.val);
+                    self.update_zero_flag(!is_bit_set(&val, 3));
+                },
+                0x5F => self.update_zero_flag(!is_bit_set(&self.af.parts.hi, 3)),
+                0x60 => self.update_zero_flag(!is_bit_set(&self.bc.parts.hi, 4)),
+                0x61 => self.update_zero_flag(!is_bit_set(&self.bc.parts.lo, 4)),
+                0x62 => self.update_zero_flag(!is_bit_set(&self.de.parts.hi, 4)),
+                0x63 => self.update_zero_flag(!is_bit_set(&self.de.parts.lo, 4)),
+                0x64 => self.update_zero_flag(!is_bit_set(&self.hl.parts.hi, 4)),
+                0x65 => self.update_zero_flag(!is_bit_set(&self.hl.parts.lo, 4)),
+                0x66 => {
+                    self.sync_cycles(4);
+                    let val = self.read_memory(self.hl.val);
+                    self.update_zero_flag(!is_bit_set(&val, 4));
+                },
+                0x67 => self.update_zero_flag(!is_bit_set(&self.af.parts.hi, 4)),
+                0x68 => self.update_zero_flag(!is_bit_set(&self.bc.parts.hi, 5)),
+                0x69 => self.update_zero_flag(!is_bit_set(&self.bc.parts.lo, 5)),
+                0x6A => self.update_zero_flag(!is_bit_set(&self.de.parts.hi, 5)),
+                0x6B => self.update_zero_flag(!is_bit_set(&self.de.parts.lo, 5)),
+                0x6C => self.update_zero_flag(!is_bit_set(&self.hl.parts.hi, 5)),
+                0x6D => self.update_zero_flag(!is_bit_set(&self.hl.parts.lo, 5)),
+                0x6E => {
+                    self.sync_cycles(4);
+                    let val = self.read_memory(self.hl.val);
+                    self.update_zero_flag(!is_bit_set(&val, 5));
+                },
+                0x6F => self.update_zero_flag(!is_bit_set(&self.af.parts.hi, 5)),
+                0x70 => self.update_zero_flag(!is_bit_set(&self.bc.parts.hi, 6)),
+                0x71 => self.update_zero_flag(!is_bit_set(&self.bc.parts.lo, 6)),
+                0x72 => self.update_zero_flag(!is_bit_set(&self.de.parts.hi, 6)),
+                0x73 => self.update_zero_flag(!is_bit_set(&self.de.parts.lo, 6)),
+                0x74 => self.update_zero_flag(!is_bit_set(&self.hl.parts.hi, 6)),
+                0x75 => self.update_zero_flag(!is_bit_set(&self.hl.parts.lo, 6)),
+                0x76 => {
+                    self.sync_cycles(4);
+                    let val = self.read_memory(self.hl.val);
+                    self.update_zero_flag(!is_bit_set(&val, 6));
+                },
+                0x77 => self.update_zero_flag(!is_bit_set(&self.af.parts.hi, 6)),
+                0x78 => self.update_zero_flag(!is_bit_set(&self.bc.parts.hi, 7)),
+                0x79 => self.update_zero_flag(!is_bit_set(&self.bc.parts.lo, 7)),
+                0x7A => self.update_zero_flag(!is_bit_set(&self.de.parts.hi, 7)),
+                0x7B => self.update_zero_flag(!is_bit_set(&self.de.parts.lo, 7)),
+                0x7C => self.update_zero_flag(!is_bit_set(&self.hl.parts.hi, 7)),
+                0x7D => self.update_zero_flag(!is_bit_set(&self.hl.parts.lo, 7)),
+                0x7E => {
+                    self.sync_cycles(4);
+                    let val = self.read_memory(self.hl.val);
+                    self.update_zero_flag(!is_bit_set(&val, 7));
+                },
+                0x7F => self.update_zero_flag(!is_bit_set(&self.af.parts.hi, 7)),
+                _ => panic!("Unknown prefix operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.update_half_carry_flag(true);
+            self.update_sub_flag(false);
+
+            opcode.cycles
+        }
+    }
+
+    fn do_call(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0xC4 => {
+                    if !self.is_zero_flag_set() {
+                        let addr = self.get_next_word();
+                        self.push_word_to_stack(self.program_counter);
+                        self.program_counter = addr;
+                        opcode.cycles
+                    } else {
+                        self.program_counter = self.program_counter.wrapping_add(2);
+                        opcode.alt_cycles.unwrap_or(opcode.cycles)
+                    }
+                },
+                0xCC => {
+                    if self.is_zero_flag_set() {
+                        let addr = self.get_next_word();
+                        self.push_word_to_stack(self.program_counter);
+                        self.program_counter = addr;
+                        opcode.cycles
+                    } else {
+                        self.program_counter = self.program_counter.wrapping_add(2);
+                        opcode.alt_cycles.unwrap_or(opcode.cycles)
+                    }
+                },
+                0xCD => {
+                    let addr = self.get_next_word();
+                    self.push_word_to_stack(self.program_counter);
+                    self.program_counter = addr;
+                    opcode.cycles
+                },
+                0xD4 => {
+                    if !self.is_carry_flag_set() {
+                        let addr = self.get_next_word();
+                        self.push_word_to_stack(self.program_counter);
+                        self.program_counter = addr;
+                        opcode.cycles
+                    } else {
+                        self.program_counter = self.program_counter.wrapping_add(2);
+                        opcode.alt_cycles.unwrap_or(opcode.cycles)
+                    }
+                },
+                0xDC => {
+                    if self.is_carry_flag_set() {
+                        let addr = self.get_next_word();
+                        self.push_word_to_stack(self.program_counter);
+                        self.program_counter = addr;
+                        opcode.cycles
+                    } else {
+                        self.program_counter = self.program_counter.wrapping_add(2);
+                        opcode.alt_cycles.unwrap_or(opcode.cycles)
+                    }
+                },
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            }
+        }
+    }
+
+    fn do_compare(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let to_cp = match opcode.code {
+                0xB8 => self.bc.parts.hi,
+                0xB9 => self.bc.parts.lo,
+                0xBA => self.de.parts.hi,
+                0xBB => self.de.parts.lo,
+                0xBC => self.hl.parts.hi,
+                0xBD => self.hl.parts.lo,
+                0xBE => self.read_memory(self.hl.val),
+                0xBF => self.af.parts.hi,
+                0xFE => self.get_next_byte(),
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.update_zero_flag(self.af.parts.hi == to_cp);
+            self.update_sub_flag(true);
+            self.update_carry_flag(self.af.parts.hi < to_cp);
+            self.update_half_carry_flag(((self.af.parts.hi as SignedWord) & 0xF) - ((to_cp as SignedWord) & 0xF) < 0);
+
+            opcode.cycles
+        }
+    }
+
+    fn do_complement(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            self.af.parts.hi = !self.af.parts.hi;
+
+            self.update_half_carry_flag(true);
+            self.update_sub_flag(true);
+
+            opcode.cycles
+        }
+    }
+
+    fn do_complement_carry(&mut self, opcode: &OpCode) -> u8 {
+        self.update_carry_flag(!self.is_carry_flag_set());
+        self.update_half_carry_flag(false);
+        self.update_sub_flag(false);
+
+        opcode.cycles
+    }
+
+    fn do_daa(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let mut val = self.af.parts.hi;
+            let mut should_set_carry = false;
+
+            if !self.is_sub_flag_set() {
+                if self.is_carry_flag_set() || val > 0x99 {
+                    val = val.wrapping_add(0x60);
+                    should_set_carry = true;
+                }
+
+                if self.is_half_carry_flag_set() || (val & 0x0F) > 0x09 {
+                    val = val.wrapping_add(0x6);
+                }
+
+            } else {
+                if self.is_carry_flag_set() {
+                    val = val.wrapping_sub(0x60);
+                    should_set_carry = true;
+                }
+
+                if self.is_half_carry_flag_set() {
+                    val = val.wrapping_sub(0x6);
+                }
+            }
+
+            self.update_zero_flag(val == 0);
+            self.update_half_carry_flag(false);
+            self.update_carry_flag(should_set_carry);
+
+            self.af.parts.hi = val;
+
+            opcode.cycles
+        }
+    }
+
+    fn do_decrement(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let result = match opcode.code {
+                0x05 => {
+                    self.bc.parts.hi = self.bc.parts.hi.wrapping_sub(1);
+                    self.bc.parts.hi
+                },
+                0x0D => {
+                    self.bc.parts.lo = self.bc.parts.lo.wrapping_sub(1);
+                    self.bc.parts.lo
+                },
+                0x15 => {
+                    self.de.parts.hi = self.de.parts.hi.wrapping_sub(1);
+                    self.de.parts.hi
+                },
+                0x1D => {
+                    self.de.parts.lo = self.de.parts.lo.wrapping_sub(1);
+                    self.de.parts.lo
+                },
+                0x25 => {
+                    self.hl.parts.hi = self.hl.parts.hi.wrapping_sub(1);
+                    self.hl.parts.hi
+                },
+                0x2D => {
+                    self.hl.parts.lo = self.hl.parts.lo.wrapping_sub(1);
+                    self.hl.parts.lo
+                },
+                0x35 => {
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    val = val.wrapping_sub(1);
+                    self.write_memory(self.hl.val, val);
+                    val
+                },
+                0x3D => {
+                    self.af.parts.hi = self.af.parts.hi.wrapping_sub(1);
+                    self.af.parts.hi
+                },
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.update_zero_flag(result == 0);
+            self.update_sub_flag(true);
+            self.update_half_carry_flag(result & 0xF == 0xF);
+
+            opcode.cycles
+        }
+    }
+
+    fn do_decrement_16_bit(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0x0B => self.bc.val = self.bc.val.wrapping_sub(1),
+                0x1B => self.de.val = self.de.val.wrapping_sub(1),
+                0x2B => self.hl.val = self.hl.val.wrapping_sub(1),
+                0x3B => self.stack_pointer = self.stack_pointer.wrapping_sub(1),
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            opcode.cycles
+        }
+    }
+
+    fn do_disable_interrupts(&mut self, opcode: &OpCode) -> u8 {
+        self.will_disable_interrupts = true;
+        opcode.cycles
+    }
+
+    fn do_enable_interrupts(&mut self, opcode: &OpCode) -> u8 {
+        self.will_enable_interrupts = true;
+        opcode.cycles
+    }
+
+    fn do_halt(&mut self, opcode: &OpCode) -> u8 {
+        self.halted = true;
+        opcode.cycles
+    }
+
+    fn do_increment(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let result = match opcode.code {
+                0x04 => {
+                    self.bc.parts.hi = self.bc.parts.hi.wrapping_add(1);
+                    self.bc.parts.hi
+                },
+                0x0C => {
+                    self.bc.parts.lo = self.bc.parts.lo.wrapping_add(1);
+                    self.bc.parts.lo
+                },
+                0x14 => {
+                    self.de.parts.hi = self.de.parts.hi.wrapping_add(1);
+                    self.de.parts.hi
+                },
+                0x1C => {
+                    self.de.parts.lo = self.de.parts.lo.wrapping_add(1);
+                    self.de.parts.lo
+                },
+                0x24 => {
+                    self.hl.parts.hi = self.hl.parts.hi.wrapping_add(1);
+                    self.hl.parts.hi
+                },
+                0x2C => {
+                    self.hl.parts.lo = self.hl.parts.lo.wrapping_add(1);
+                    self.hl.parts.lo
+                },
+                0x34 => {
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    val = val.wrapping_add(1);
+                    self.write_memory(self.hl.val, val);
+                    val
+                },
+                0x3C => {
+                    self.af.parts.hi = self.af.parts.hi.wrapping_add(1);
+                    self.af.parts.hi
+                },
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.update_zero_flag(result == 0);
+            self.update_sub_flag(false);
+            self.update_half_carry_flag(result & 0xF == 0);
+
+            opcode.cycles
+        }
+    }
+
+    fn do_increment_16_bit(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0x03 => self.bc.val = self.bc.val.wrapping_add(1),
+                0x13 => self.de.val = self.de.val.wrapping_add(1),
+                0x23 => self.hl.val = self.hl.val.wrapping_add(1),
+                0x33 => self.stack_pointer = self.stack_pointer.wrapping_add(1),
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            opcode.cycles
+        }
+    }
+
+    fn do_jump(&mut self, opcode: &OpCode) -> u8 {
+        match opcode.code {
+            0xC2 => {
+                self.program_counter = if !self.is_zero_flag_set() { self.get_next_word() } else { self.program_counter.wrapping_add(2) };
+                if self.is_zero_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0xC3 => {
+                self.program_counter = self.get_next_word();
+                opcode.cycles
+            },
+            0xCA => {
+                self.program_counter = if self.is_zero_flag_set() { self.get_next_word() } else { self.program_counter.wrapping_add(2) };
+                if !self.is_zero_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0xD2 => {
+                self.program_counter = if !self.is_carry_flag_set() { self.get_next_word() } else { self.program_counter.wrapping_add(2) };
+                if self.is_carry_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0xDA => {
+                self.program_counter = if self.is_carry_flag_set() {self.get_next_word()} else { self.program_counter.wrapping_add(2) };
+                if !self.is_carry_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0xE9 => {
+                unsafe {
+                    self.program_counter = self.hl.val;
+                    opcode.cycles
+                }
+            },
+            _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+        }
+    }
+
+    fn do_jump_relative(&mut self, opcode: &OpCode) -> u8 {
+        match opcode.code {
+            0x18 => {
+                let offset = self.get_next_byte_signed();
+                if offset > 0 {
+                    self.program_counter += offset as Word;
+                } else {
+                    self.program_counter -= offset.abs() as Word;
+                }
+
+                opcode.cycles
+            },
+            0x20 => {
+                let offset = self.get_next_byte_signed();
+                if !self.is_zero_flag_set() {
+                    if offset > 0 {
+                        self.program_counter += offset as Word;
+                    } else {
+                        self.program_counter -= offset.abs() as Word;
+                    }
+                }
+
+                if self.is_zero_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0x28 => {
+                let offset = self.get_next_byte_signed();
+                if self.is_zero_flag_set() {
+                    if offset > 0 {
+                        self.program_counter += offset as Word;
+                    } else {
+                        self.program_counter -= offset.abs() as Word;
+                    }
+                }
+
+                if !self.is_zero_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0x30 => {
+                let offset = self.get_next_byte_signed();
+                if !self.is_carry_flag_set() {
+                    if offset > 0 {
+                        self.program_counter += offset as Word;
+                    } else {
+                        self.program_counter -= offset.abs() as Word;
+                    }
+                }
+
+                if self.is_carry_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0x38 => {
+                let offset = self.get_next_byte_signed();
+                if self.is_carry_flag_set() {
+                    if offset > 0 {
+                        self.program_counter += offset as Word;
+                    } else {
+                        self.program_counter -= offset.abs() as Word;
+                    }
+                }
+
+                if !self.is_carry_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+        }
+    }
+
+    fn do_load(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0x01 => self.bc.val = self.get_next_word(),
+                0x02 => self.write_memory(self.bc.val, self.af.parts.hi),
+                0x06 => self.bc.parts.hi = self.get_next_byte(),
+                0x08 => {
+                    let addr = self.get_next_word();
+                    self.write_memory(addr, (self.stack_pointer & 0xFF) as Byte);
+                    self.write_memory(addr + 1, (self.stack_pointer >> 8) as Byte);
+                },
+                0x0A => self.af.parts.hi = self.read_memory(self.bc.val),
+                0x0E => self.bc.parts.lo = self.get_next_byte(),
+                0x11 => self.de.val = self.get_next_word(),
+                0x12 => self.write_memory(self.de.val, self.af.parts.hi),
+                0x16 => self.de.parts.hi = self.get_next_byte(),
+                0x1A => self.af.parts.hi = self.read_memory(self.de.val),
+                0x1E => self.de.parts.lo = self.get_next_byte(),
+                0x21 => self.hl.val = self.get_next_word(),
+                0x22 => {
+                    self.write_memory(self.hl.val, self.af.parts.hi);
+                    self.hl.val = self.hl.val.wrapping_add(1);
+                },
+                0x26 => self.hl.parts.hi = self.get_next_byte(),
+                0x2A => {
+                    self.af.parts.hi = self.read_memory(self.hl.val);
+                    self.hl.val = self.hl.val.wrapping_add(1);;
+                }
+                0x2E => self.hl.parts.lo = self.get_next_byte(),
+                0x31 => self.stack_pointer = self.get_next_word(),
+                0x32 => {
+                    self.write_memory(self.hl.val, self.af.parts.hi);
+                    self.hl.val = self.hl.val.wrapping_sub(1);
+                },
+                0x36 => {
+                    self.sync_cycles(4);
+                    let val = self.get_next_byte();
+                    self.write_memory(self.hl.val, val);
+                },
+                0x3A => {
+                    self.af.parts.hi = self.read_memory(self.hl.val);
+                    self.hl.val = self.hl.val.wrapping_sub(1);
+                },
+                0x40 => self.bc.parts.hi = self.bc.parts.hi,
+                0x41 => self.bc.parts.hi = self.bc.parts.lo,
+                0x42 => self.bc.parts.hi = self.de.parts.hi,
+                0x43 => self.bc.parts.hi = self.de.parts.lo,
+                0x44 => self.bc.parts.hi = self.hl.parts.hi,
+                0x45 => self.bc.parts.hi = self.hl.parts.lo,
+                0x46 => self.bc.parts.hi = self.read_memory(self.hl.val),
+                0x47 => self.bc.parts.hi = self.af.parts.hi,
+                0x48 => self.bc.parts.lo = self.bc.parts.hi,
+                0x49 => self.bc.parts.lo = self.bc.parts.lo,
+                0x4A => self.bc.parts.lo = self.de.parts.hi,
+                0x4B => self.bc.parts.lo = self.de.parts.lo,
+                0x4C => self.bc.parts.lo = self.hl.parts.hi,
+                0x4D => self.bc.parts.lo = self.hl.parts.lo,
+                0x4E => self.bc.parts.lo = self.read_memory(self.hl.val),
+                0x4F => self.bc.parts.lo = self.af.parts.hi,
+                0x50 => self.de.parts.hi = self.bc.parts.hi,
+                0x51 => self.de.parts.hi = self.bc.parts.lo,
+                0x52 => self.de.parts.hi = self.de.parts.hi,
+                0x53 => self.de.parts.hi = self.de.parts.lo,
+                0x54 => self.de.parts.hi = self.hl.parts.hi,
+                0x55 => self.de.parts.hi = self.hl.parts.lo,
+                0x56 => self.de.parts.hi = self.read_memory(self.hl.val),
+                0x57 => self.de.parts.hi = self.af.parts.hi,
+                0x58 => self.de.parts.lo = self.bc.parts.hi,
+                0x59 => self.de.parts.lo = self.bc.parts.lo,
+                0x5A => self.de.parts.lo = self.de.parts.hi,
+                0x5B => self.de.parts.lo = self.de.parts.lo,
+                0x5C => self.de.parts.lo = self.hl.parts.hi,
+                0x5D => self.de.parts.lo = self.hl.parts.lo,
+                0x5E => self.de.parts.lo = self.read_memory(self.hl.val),
+                0x5F => self.de.parts.lo = self.af.parts.hi,
+                0x60 => self.hl.parts.hi = self.bc.parts.hi,
+                0x61 => self.hl.parts.hi = self.bc.parts.lo,
+                0x62 => self.hl.parts.hi = self.de.parts.hi,
+                0x63 => self.hl.parts.hi = self.de.parts.lo,
+                0x64 => self.hl.parts.hi = self.hl.parts.hi,
+                0x65 => self.hl.parts.hi = self.hl.parts.lo,
+                0x66 => self.hl.parts.hi = self.read_memory(self.hl.val),
+                0x67 => self.hl.parts.hi = self.af.parts.hi,
+                0x68 => self.hl.parts.lo = self.bc.parts.hi,
+                0x69 => self.hl.parts.lo = self.bc.parts.lo,
+                0x6A => self.hl.parts.lo = self.de.parts.hi,
+                0x6B => self.hl.parts.lo = self.de.parts.lo,
+                0x6C => self.hl.parts.lo = self.hl.parts.hi,
+                0x6D => self.hl.parts.lo = self.hl.parts.lo,
+                0x6E => self.hl.parts.lo = self.read_memory(self.hl.val),
+                0x6F => self.hl.parts.lo = self.af.parts.hi,
+                0x70 => self.write_memory(self.hl.val, self.bc.parts.hi),
+                0x71 => self.write_memory(self.hl.val, self.bc.parts.lo),
+                0x72 => self.write_memory(self.hl.val, self.de.parts.hi),
+                0x73 => self.write_memory(self.hl.val, self.de.parts.lo),
+                0x74 => self.write_memory(self.hl.val, self.hl.parts.hi),
+                0x75 => self.write_memory(self.hl.val, self.hl.parts.lo),
+                0x77 => self.write_memory(self.hl.val, self.af.parts.hi),
+                0x78 => self.af.parts.hi = self.bc.parts.hi,
+                0x79 => self.af.parts.hi = self.bc.parts.lo,
+                0x7A => self.af.parts.hi = self.de.parts.hi,
+                0x7B => self.af.parts.hi = self.de.parts.lo,
+                0x7C => self.af.parts.hi = self.hl.parts.hi,
+                0x7D => self.af.parts.hi = self.hl.parts.lo,
+                0x7E => self.af.parts.hi = self.read_memory(self.hl.val),
+                0x7F => self.af.parts.hi = self.af.parts.hi,
+                0x3E => self.af.parts.hi = self.get_next_byte(),
+                0xE2 => self.write_memory(0xFF00 + (self.bc.parts.lo as Word), self.af.parts.hi),
+                0xEA => {
+                    self.sync_cycles(8);
+                    let addr = self.get_next_word();
+                    self.write_memory(addr, self.af.parts.hi);
+                },
+                0xF2 => self.af.parts.hi = self.read_memory(0xFF00 + (self.bc.parts.lo as Word)),
+                0xF8 => {
+                    // TODO This one might be wrong
+                    let offset = self.get_next_byte_signed();
+                    if offset > 0 {
+                        self.hl.val = self.stack_pointer.wrapping_add(offset as Word);
+                        self.update_carry_flag((self.stack_pointer & 0xFF) + ((offset as Word) & 0xFF) > 0xFF);
+                        self.update_half_carry_flag((self.stack_pointer & 0xF) + ((offset as Word) & 0xF) > 0xF);
+                    } else {
+                        self.hl.val = self.stack_pointer.wrapping_sub(offset.abs() as Word);
+                        self.update_carry_flag((self.stack_pointer & 0xFF) - ((offset.abs() as Word) & 0xFF) > 0xFF);
+                        self.update_half_carry_flag((self.stack_pointer & 0xF) - ((offset.abs() as Word) & 0xF) > 0xF);
+                    }
+
+                    self.update_zero_flag(false);
+                    self.update_sub_flag(false);
+                },
+                0xF9 => self.stack_pointer = self.hl.val,
+                0xFA => {
+                    let word = self.get_next_word();
+                    self.sync_cycles(8);
+                    self.af.parts.hi = self.read_memory(word);
+                },
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            opcode.cycles
+        }
+    }
+
+    fn do_load_h(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0xE0 => {
+                    self.sync_cycles(4);
+                    let addr = self.get_next_byte();
+                    self.write_memory(0xFF00 | addr as Word, self.af.parts.hi);
+                },
+                0xF0 => {
+                    let addr = self.get_next_byte();
+                    self.sync_cycles(4);
+                    self.af.parts.hi = self.read_memory(0xFF00 | addr as Word);
+                },
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            opcode.cycles
+        }
+    }
+
+    fn do_or(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let to_or = match opcode.code {
+                0xB0 => self.bc.parts.hi,
+                0xB1 => self.bc.parts.lo,
+                0xB2 => self.de.parts.hi,
+                0xB3 => self.de.parts.lo,
+                0xB4 => self.hl.parts.hi,
+                0xB5 => self.hl.parts.lo,
+                0xB6 => self.read_memory(self.hl.val),
+                0xB7 => self.af.parts.hi,
+                0xF6 => self.get_next_byte(),
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.af.parts.hi |= to_or;
+
+            self.update_zero_flag(self.af.parts.hi == 0);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
+            self.update_carry_flag(false);
+
+            opcode.cycles
+        }
+    }
+
+    fn do_pop(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0xC1 => self.bc.val = self.pop_word_from_stack(),
+                0xD1 => self.de.val = self.pop_word_from_stack(),
+                0xE1 => self.hl.val = self.pop_word_from_stack(),
+                0xF1 => {
+                    self.af.val = self.pop_word_from_stack();
+                    self.af.parts.lo &= 0xF0;
+                },
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            opcode.cycles
+        }
+    }
+
+    fn do_prefix(&mut self) -> u8 {
+        let op = self.read_memory(self.program_counter);
+        let opcode = PREFIX_OPCODE_MAP
+            .get(&op)
+            .expect(&format!("Prefix OpCode 0x{:02x} is not recognized", op));
+
+        self.program_counter = self.program_counter.wrapping_add(1);
+
+        match opcode.operation {
+            Operation::BIT => self.do_bit(&opcode),
+            Operation::RES => self.do_res(&opcode),
+            Operation::SET => self.do_set(&opcode),
+            _ => panic!("Operation not found - {}", opcode.operation)
+        }
+    }
+
+    fn do_push(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0xC5 => self.push_word_to_stack(self.bc.val),
+                0xD5 => self.push_word_to_stack(self.de.val),
+                0xE5 => self.push_word_to_stack(self.hl.val),
+                0xF5 => self.push_word_to_stack(self.af.val),
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            opcode.cycles
+        }
+    }
+
+    fn do_return(&mut self, opcode: &OpCode) -> u8 {
+        match opcode.code {
+            0xC0 => {
+                self.program_counter = if !self.is_zero_flag_set() { self.pop_word_from_stack() } else { self.program_counter };
+                if self.is_zero_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0xC8 => {
+                self.program_counter = if self.is_zero_flag_set() { self.pop_word_from_stack() } else { self.program_counter };
+                if !self.is_zero_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0xC9 => {
+                self.program_counter = self.pop_word_from_stack();
+                opcode.cycles
+            },
+            0xD0 => {
+                self.program_counter = if !self.is_carry_flag_set() { self.pop_word_from_stack() } else { self.program_counter };
+                if self.is_carry_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0xD8 => {
+                self.program_counter = if self.is_carry_flag_set() {self.pop_word_from_stack()} else { self.program_counter };
+                if !self.is_carry_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
+            },
+            0xD9 => {
+                self.program_counter = self.pop_word_from_stack();
+                self.interrupts_enabled = true;
+                opcode.cycles
+            },
+            _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+        }
+    }
+
+    fn do_res(&mut self, opcode: &OpCode) -> u8 {
+
+        unsafe {
+            match opcode.code {
+                0x80 => reset_bit(&mut self.bc.parts.hi, 0),
+                0x81 => reset_bit(&mut self.bc.parts.lo, 0),
+                0x82 => reset_bit(&mut self.de.parts.hi, 0),
+                0x83 => reset_bit(&mut self.de.parts.lo, 0),
+                0x84 => reset_bit(&mut self.hl.parts.hi, 0),
+                0x85 => reset_bit(&mut self.hl.parts.lo, 0),
+                0x86 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    reset_bit(&mut val, 0);
+                    self.write_memory(self.hl.val, val);
+                },
+                0x87 => reset_bit(&mut self.af.parts.hi, 0),
+                0x88 => reset_bit(&mut self.bc.parts.hi, 1),
+                0x89 => reset_bit(&mut self.bc.parts.lo, 1),
+                0x8A => reset_bit(&mut self.de.parts.hi, 1),
+                0x8B => reset_bit(&mut self.de.parts.lo, 1),
+                0x8C => reset_bit(&mut self.hl.parts.hi, 1),
+                0x8D => reset_bit(&mut self.hl.parts.lo, 1),
+                0x8E => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    reset_bit(&mut val, 1);
+                    self.write_memory(self.hl.val, val);
+                },
+                0x8F => reset_bit(&mut self.af.parts.hi, 1),
+                0x90 => reset_bit(&mut self.bc.parts.hi, 2),
+                0x91 => reset_bit(&mut self.bc.parts.lo, 2),
+                0x92 => reset_bit(&mut self.de.parts.hi, 2),
+                0x93 => reset_bit(&mut self.de.parts.lo, 2),
+                0x94 => reset_bit(&mut self.hl.parts.hi, 2),
+                0x95 => reset_bit(&mut self.hl.parts.lo, 2),
+                0x96 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    reset_bit(&mut val, 2);
+                    self.write_memory(self.hl.val, val);
+                },
+                0x97 => reset_bit(&mut self.af.parts.hi, 2),
+                0x98 => reset_bit(&mut self.bc.parts.hi, 3),
+                0x99 => reset_bit(&mut self.bc.parts.lo, 3),
+                0x9A => reset_bit(&mut self.de.parts.hi, 3),
+                0x9B => reset_bit(&mut self.de.parts.lo, 3),
+                0x9C => reset_bit(&mut self.hl.parts.hi, 3),
+                0x9D => reset_bit(&mut self.hl.parts.lo, 3),
+                0x9E => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    reset_bit(&mut val, 3);
+                    self.write_memory(self.hl.val, val);
+                },
+                0x9F => reset_bit(&mut self.af.parts.hi, 3),
+                0xA0 => reset_bit(&mut self.bc.parts.hi, 4),
+                0xA1 => reset_bit(&mut self.bc.parts.lo, 4),
+                0xA2 => reset_bit(&mut self.de.parts.hi, 4),
+                0xA3 => reset_bit(&mut self.de.parts.lo, 4),
+                0xA4 => reset_bit(&mut self.hl.parts.hi, 4),
+                0xA5 => reset_bit(&mut self.hl.parts.lo, 4),
+                0xA6 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    reset_bit(&mut val, 4);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xA7 => reset_bit(&mut self.af.parts.hi, 4),
+                0xA8 => reset_bit(&mut self.bc.parts.hi, 5),
+                0xA9 => reset_bit(&mut self.bc.parts.lo, 5),
+                0xAA => reset_bit(&mut self.de.parts.hi, 5),
+                0xAB => reset_bit(&mut self.de.parts.lo, 5),
+                0xAC => reset_bit(&mut self.hl.parts.hi, 5),
+                0xAD => reset_bit(&mut self.hl.parts.lo, 5),
+                0xAE => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    reset_bit(&mut val, 5);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xAF => reset_bit(&mut self.af.parts.hi, 5),
+                0xB0 => reset_bit(&mut self.bc.parts.hi, 6),
+                0xB1 => reset_bit(&mut self.bc.parts.lo, 6),
+                0xB2 => reset_bit(&mut self.de.parts.hi, 6),
+                0xB3 => reset_bit(&mut self.de.parts.lo, 6),
+                0xB4 => reset_bit(&mut self.hl.parts.hi, 6),
+                0xB5 => reset_bit(&mut self.hl.parts.lo, 6),
+                0xB6 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    reset_bit(&mut val, 6);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xB7 => reset_bit(&mut self.af.parts.hi, 6),
+                0xB8 => reset_bit(&mut self.bc.parts.hi, 7),
+                0xB9 => reset_bit(&mut self.bc.parts.lo, 7),
+                0xBA => reset_bit(&mut self.de.parts.hi, 7),
+                0xBB => reset_bit(&mut self.de.parts.lo, 7),
+                0xBC => reset_bit(&mut self.hl.parts.hi, 7),
+                0xBD => reset_bit(&mut self.hl.parts.lo, 7),
+                0xBE => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    reset_bit(&mut val, 7);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xBF => reset_bit(&mut self.af.parts.hi, 7),
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            opcode.cycles
+        }
+    }
+
+    fn do_set(&mut self, opcode: &OpCode) -> u8 {
+
+        unsafe {
+            match opcode.code {
+                0xC0 => set_bit(&mut self.bc.parts.hi, 0),
+                0xC1 => set_bit(&mut self.bc.parts.lo, 0),
+                0xC2 => set_bit(&mut self.de.parts.hi, 0),
+                0xC3 => set_bit(&mut self.de.parts.lo, 0),
+                0xC4 => set_bit(&mut self.hl.parts.hi, 0),
+                0xC5 => set_bit(&mut self.hl.parts.lo, 0),
+                0xC6 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    set_bit(&mut val, 0);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xC7 => set_bit(&mut self.af.parts.hi, 0),
+                0xC8 => set_bit(&mut self.bc.parts.hi, 1),
+                0xC9 => set_bit(&mut self.bc.parts.lo, 1),
+                0xCA => set_bit(&mut self.de.parts.hi, 1),
+                0xCB => set_bit(&mut self.de.parts.lo, 1),
+                0xCC => set_bit(&mut self.hl.parts.hi, 1),
+                0xCD => set_bit(&mut self.hl.parts.lo, 1),
+                0xCE => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    set_bit(&mut val, 1);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xCF => set_bit(&mut self.af.parts.hi, 1),
+                0xD0 => set_bit(&mut self.bc.parts.hi, 2),
+                0xD1 => set_bit(&mut self.bc.parts.lo, 2),
+                0xD2 => set_bit(&mut self.de.parts.hi, 2),
+                0xD3 => set_bit(&mut self.de.parts.lo, 2),
+                0xD4 => set_bit(&mut self.hl.parts.hi, 2),
+                0xD5 => set_bit(&mut self.hl.parts.lo, 2),
+                0xD6 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    set_bit(&mut val, 2);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xD7 => set_bit(&mut self.af.parts.hi, 2),
+                0xD8 => set_bit(&mut self.bc.parts.hi, 3),
+                0xD9 => set_bit(&mut self.bc.parts.lo, 3),
+                0xDA => set_bit(&mut self.de.parts.hi, 3),
+                0xDB => set_bit(&mut self.de.parts.lo, 3),
+                0xDC => set_bit(&mut self.hl.parts.hi, 3),
+                0xDD => set_bit(&mut self.hl.parts.lo, 3),
+                0xDE => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    set_bit(&mut val, 3);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xDF => set_bit(&mut self.af.parts.hi, 3),
+                0xE0 => set_bit(&mut self.bc.parts.hi, 4),
+                0xE1 => set_bit(&mut self.bc.parts.lo, 4),
+                0xE2 => set_bit(&mut self.de.parts.hi, 4),
+                0xE3 => set_bit(&mut self.de.parts.lo, 4),
+                0xE4 => set_bit(&mut self.hl.parts.hi, 4),
+                0xE5 => set_bit(&mut self.hl.parts.lo, 4),
+                0xE6 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    set_bit(&mut val, 4);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xE7 => set_bit(&mut self.af.parts.hi, 4),
+                0xE8 => set_bit(&mut self.bc.parts.hi, 5),
+                0xE9 => set_bit(&mut self.bc.parts.lo, 5),
+                0xEA => set_bit(&mut self.de.parts.hi, 5),
+                0xEB => set_bit(&mut self.de.parts.lo, 5),
+                0xEC => set_bit(&mut self.hl.parts.hi, 5),
+                0xED => set_bit(&mut self.hl.parts.lo, 5),
+                0xEE => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    set_bit(&mut val, 5);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xEF => set_bit(&mut self.af.parts.hi, 5),
+                0xF0 => set_bit(&mut self.bc.parts.hi, 6),
+                0xF1 => set_bit(&mut self.bc.parts.lo, 6),
+                0xF2 => set_bit(&mut self.de.parts.hi, 6),
+                0xF3 => set_bit(&mut self.de.parts.lo, 6),
+                0xF4 => set_bit(&mut self.hl.parts.hi, 6),
+                0xF5 => set_bit(&mut self.hl.parts.lo, 6),
+                0xF6 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    set_bit(&mut val, 6);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xF7 => set_bit(&mut self.af.parts.hi, 6),
+                0xF8 => set_bit(&mut self.bc.parts.hi, 7),
+                0xF9 => set_bit(&mut self.bc.parts.lo, 7),
+                0xFA => set_bit(&mut self.de.parts.hi, 7),
+                0xFB => set_bit(&mut self.de.parts.lo, 7),
+                0xFC => set_bit(&mut self.hl.parts.hi, 7),
+                0xFD => set_bit(&mut self.hl.parts.lo, 7),
+                0xFE => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    set_bit(&mut val, 7);
+                    self.write_memory(self.hl.val, val);
+                },
+                0xFF => set_bit(&mut self.af.parts.hi, 7),
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            opcode.cycles
+        }
+    }
+
+    fn do_sub(&mut self, opcode: &OpCode, with_carry: bool) -> u8 {
+        unsafe {
+            let to_sub = match opcode.code {
+                0x90 => self.bc.parts.hi,
+                0x91 => self.bc.parts.lo,
+                0x92 => self.de.parts.hi,
+                0x93 => self.de.parts.lo,
+                0x94 => self.hl.parts.hi,
+                0x95 => self.hl.parts.lo,
+                0x96 => self.read_memory(self.hl.val),
+                0x97 => self.af.parts.hi,
+                0x98 => self.bc.parts.hi,
+                0x99 => self.bc.parts.lo,
+                0x9A => self.de.parts.hi,
+                0x9B => self.de.parts.lo,
+                0x9C => self.hl.parts.hi,
+                0x9D => self.hl.parts.lo,
+                0x9E => self.read_memory(self.hl.val),
+                0x9F => self.af.parts.hi,
+                0xD6 => self.get_next_byte(),
+                0xDE => self.get_next_byte(),
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            let carry = if with_carry && self.is_carry_flag_set() {1} else {0};
+            let a_reg = self.af.parts.hi;
+            let res = a_reg.wrapping_sub(to_sub).wrapping_sub(carry);
+            let lower_nibble = (a_reg & 0xF) as Word;
+
+            self.update_zero_flag(res == 0);
+            self.update_sub_flag(true);
+            self.update_carry_flag(a_reg < to_sub + (carry as Byte));
+            self.update_half_carry_flag((a_reg & 0xF) < (to_sub & 0xF) + (carry as Byte));
+
+            self.af.parts.hi = res;
+
+            opcode.cycles
+        }
+    }
+
+    fn do_xor(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let to_xor = match opcode.code {
+                0xA8 => self.bc.parts.hi,
+                0xA9 => self.bc.parts.lo,
+                0xAA => self.de.parts.hi,
+                0xAB => self.de.parts.lo,
+                0xAC => self.hl.parts.hi,
+                0xAD => self.hl.parts.lo,
+                0xAE => self.read_memory(self.hl.val),
+                0xAF => self.af.parts.hi,
+                0xEE => self.get_next_byte(),
+                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.af.parts.hi ^= to_xor;
+
+            self.update_zero_flag(self.af.parts.hi == 0);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
+            self.update_carry_flag(false);
+
+            opcode.cycles
+        }
+    }
+
+    fn debug(&mut self) {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open("debug.txt")
+            .unwrap();
+
+        unsafe {
+            let a = self.af.parts.hi;
+            let f = self.af.parts.lo;
+            let b = self.bc.parts.hi;
+            let c = self.bc.parts.lo;
+            let d = self.de.parts.hi;
+            let e = self.de.parts.lo;
+            let h = self.hl.parts.hi;
+            let l = self.hl.parts.lo;
+            let sp = self.stack_pointer;
+            let pc = self.program_counter;
+
+            let pc_1 = self.read_memory(self.program_counter);
+            let pc_2 = self.read_memory(self.program_counter + 1);
+            let pc_3 = self.read_memory(self.program_counter + 2);
+            let pc_4 = self.read_memory(self.program_counter + 3);
+
+            let line = format!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X})", a, f, b, c, d, e, h, l, sp, pc, pc_1, pc_2, pc_3, pc_4);
+            if let Err(e) = writeln!(file, "{}", line) {
+                eprintln!("Couldn't write to file: {}", e);
+            }
         }
     }
 }

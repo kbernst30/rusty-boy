@@ -71,7 +71,6 @@ fn main() {
         ::std::thread::sleep(Duration::new(0, (1_000_000_000.0 / 59.7275f32).floor() as u32));
     }
 
-
     // let mut creator = canvas.texture_creator();
     // let mut texture = creator
     //     .create_texture_target(PixelFormatEnum::RGB24, SCREEN_WIDTH, SCREEN_HEIGHT).unwrap();

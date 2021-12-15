@@ -90,6 +90,9 @@ impl Mmu {
         // This iniital state of the joypad is all unpressed
         self.memory[JOYPAD_REGISTER_ADDR as usize] = 0xFF;
 
+        // TEMP
+        self.memory[0xFF44] = 0x90;
+
         self.rom_bank = 1;
 
         self.load_rom();
