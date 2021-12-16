@@ -1,6 +1,7 @@
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 
+use crate::interrupts::*;
 use crate::mmu::*;
 use crate::ops::*;
 use crate::utils::*;
@@ -149,6 +150,12 @@ impl Cpu {
         // Sync remaining cycles for the instruction
         self.sync_cycles(cycles - self.cycle_tracker);
 
+        // Handle interrupts
+        let interrupt_option = get_servicable_interrupt(&self.mmu);
+        if let Some(interrupt) = interrupt_option {
+            self.service_interrupt(interrupt);
+        }
+
         cycles
     }
 
@@ -161,6 +168,41 @@ impl Cpu {
         // self.ppu.update_graphics(cycles)
 
         self.cycle_tracker += cycles;
+    }
+
+    fn service_interrupt(&mut self, interrupt: Interrupt) {
+        // Unhalt the CPU
+        self.halted = false;
+
+        // IF interrupt master switch is enabled, we can go ahead and service
+        if self.interrupts_enabled {
+            let interrupt_bit = AVAILABLE_INTERRUPTS.iter().position(|&i| i == interrupt).unwrap();
+
+            // Disable any additional interrupts for now
+            self.interrupts_enabled = false;
+
+            // Turn off the request for the requested interrupt
+            let mut interrupts_requested = self.read_memory(INTERRUPT_FLAG_ADDR);
+            reset_bit(&mut interrupts_requested, interrupt_bit);
+            self.write_memory(INTERRUPT_FLAG_ADDR, interrupts_requested);
+
+            // Push current PC to the stack
+            self.push_word_to_stack(self.program_counter);
+
+            // Service the Interrupt based on value
+            // VBlank Interrupt - INT $40
+            // LCD Stat Interrupt - INT $48
+            // Timer Interrupt - INT $50
+            // Serial Interrupt - INT $58
+            // Joypad Interrupt - INT $60
+            self.program_counter = match interrupt {
+                Interrupt::V_BLANK => 0x40,
+                Interrupt::LCD_STAT => 0x48,
+                Interrupt::TIMER => 0x50,
+                Interrupt::SERIAL => 0x58,
+                Interrupt::JOYPAD => 0x60,
+            };
+        }
     }
 
     fn read_memory(&mut self, addr: Word) -> Byte {

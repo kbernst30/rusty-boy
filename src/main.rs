@@ -3,6 +3,7 @@ extern crate lazy_static;
 extern crate sdl2;
 
 pub mod cpu;
+pub mod interrupts;
 pub mod mmu;
 pub mod ops;
 pub mod rom;

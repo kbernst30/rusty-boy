@@ -87,6 +87,15 @@ pub const INTERRUPT_ENABLE_ADDR: Word = 0xFFFF;
 // Bit 4 = Joypad Interrupt - INT $60
 pub const INTERRUPT_FLAG_ADDR: Word = 0xFF0F;
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum Interrupt {
+    V_BLANK,
+    LCD_STAT,
+    TIMER,
+    SERIAL,
+    JOYPAD,
+}
+
 // Joypad register - Bits are as follows:
 // Bit 7 - Not used
 // Bit 6 - Not used
