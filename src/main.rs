@@ -8,6 +8,7 @@ pub mod mmu;
 pub mod ops;
 pub mod rom;
 pub mod rusty_boy;
+pub mod timer;
 pub mod utils;
 
 use std::env;

@@ -4,6 +4,7 @@ use std::io::prelude::*;
 use crate::interrupts::*;
 use crate::mmu::*;
 use crate::ops::*;
+use crate::timer::*;
 use crate::utils::*;
 
 #[derive(Debug, Copy, Clone)]
@@ -28,6 +29,7 @@ pub struct Cpu {
     //
     // There is a 2-Byte register for the Program counter and a 2-Byte register for the Stack Pointer
     mmu: Mmu,
+    timer: Timer,
     af: RegisterPair,
     bc: RegisterPair,
     de: RegisterPair,
@@ -45,10 +47,11 @@ pub struct Cpu {
 
 impl Cpu {
 
-    pub fn new(mmu: Mmu) -> Cpu {
+    pub fn new(mmu: Mmu, timer: Timer) -> Cpu {
 
         Cpu {
             mmu: mmu,
+            timer: timer,
             af: RegisterPair { val: 0 },
             bc: RegisterPair { val: 0 },
             de: RegisterPair { val: 0 },
@@ -78,7 +81,7 @@ impl Cpu {
         self.halted = false;
         self.interrupts_enabled = true;
         self.will_disable_interrupts = false;
-        self.will_disable_interrupts = false;
+        self.will_enable_interrupts = false;
     }
 
     pub fn execute(&mut self) -> u8 {
@@ -90,8 +93,11 @@ impl Cpu {
             .get(&op)
             .expect(&format!("OpCode 0x{:02x} is not recognized", op));
 
-        if self.debug_ctr < 1068422 {
+        if self.debug_ctr < 161502 {
             // self.debug();
+            if self.debug_ctr == 152481 {
+                // println!("{:04X} - {}", self.program_counter, self.halted);
+            }
             self.debug_ctr += 1;
         }
 
@@ -138,6 +144,7 @@ impl Cpu {
             Operation::RST => self.do_restart(&opcode),
             Operation::SBC => self.do_sub(&opcode, true),
             Operation::SCF => self.do_set_carry_flag(&opcode),
+            Operation::STOP => opcode.cycles,
             Operation::SUB => self.do_sub(&opcode, false),
             Operation::XOR => self.do_xor(&opcode),
             _ => panic!("Operation not found - {}", opcode.operation)
@@ -164,13 +171,16 @@ impl Cpu {
         // not all at once - this is used to be able to sync components
         // during execution
 
-        // self.timer.update_timers(cycles)
+        self.timer.update(&mut self.mmu, cycles);
         // self.ppu.update_graphics(cycles)
 
         self.cycle_tracker += cycles;
     }
 
     fn service_interrupt(&mut self, interrupt: Interrupt) {
+        if self.debug_ctr >= 152481 {
+            println!("hmmm");
+        }
         // Unhalt the CPU
         self.halted = false;
 
@@ -215,6 +225,10 @@ impl Cpu {
             if self.read_memory(0xFF02) == 0x81 {
                 print!("{}", data as char);
             }
+        }
+
+        if addr == 0xFF0F {
+            println!("WHAT {}", self.debug_ctr);
         }
 
         self.mmu.write_byte(addr, data);

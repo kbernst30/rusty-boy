@@ -1,6 +1,7 @@
 use crate::cpu::*;
 use crate::mmu::*;
 use crate::rom::*;
+use crate::timer::*;
 use crate::utils::*;
 
 pub struct RustyBoy {
@@ -16,7 +17,9 @@ impl RustyBoy {
         let mut mmu = Mmu::new(rom);
         mmu.reset();
 
-        let mut cpu = Cpu::new(mmu);
+        let mut timer = Timer::new();
+
+        let mut cpu = Cpu::new(mmu, timer);
         cpu.reset();
 
         RustyBoy {
