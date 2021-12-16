@@ -89,7 +89,7 @@ impl Cpu {
             .get(&op)
             .expect(&format!("OpCode 0x{:02x} is not recognized", op));
 
-        if self.debug_ctr < 1258895 {
+        if self.debug_ctr < 1068422 {
             // self.debug();
             self.debug_ctr += 1;
         }
@@ -130,7 +130,13 @@ impl Cpu {
             Operation::PUSH => self.do_push(&opcode),
             Operation::RET => self.do_return(&opcode),
             Operation::RETI => self.do_return(&opcode),
+            Operation::RLA => self.do_rla(&opcode),
+            Operation::RLCA => self.do_rlca(&opcode),
+            Operation::RRA => self.do_rra(&opcode),
+            Operation::RRCA => self.do_rrca(&opcode),
+            Operation::RST => self.do_restart(&opcode),
             Operation::SBC => self.do_sub(&opcode, true),
+            Operation::SCF => self.do_set_carry_flag(&opcode),
             Operation::SUB => self.do_sub(&opcode, false),
             Operation::XOR => self.do_xor(&opcode),
             _ => panic!("Operation not found - {}", opcode.operation)
@@ -341,8 +347,8 @@ impl Cpu {
                 self.update_half_carry_flag((self.stack_pointer & 0xF) + ((offset as Word) & 0xF) > 0xF);
                 self.stack_pointer = self.stack_pointer.wrapping_add(offset as Word);
             } else {
-                self.update_carry_flag((self.stack_pointer & 0xFF) - ((offset.abs() as Word) & 0xFF) > 0xFF);
-                self.update_half_carry_flag((self.stack_pointer & 0xF) - ((offset.abs() as Word) & 0xF) > 0xF);
+                self.update_carry_flag((self.stack_pointer & 0xFF) + ((offset as Word) & 0xFF) > 0xFF);
+                self.update_half_carry_flag((self.stack_pointer & 0xF) + ((offset as Word) & 0xF) > 0xF);
                 self.stack_pointer = self.stack_pointer.wrapping_sub(offset.abs() as Word);
             }
         } else {
@@ -355,7 +361,7 @@ impl Cpu {
                     _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
                 };
 
-                self.update_zero_flag(false);
+                self.update_sub_flag(false);
                 self.update_carry_flag((self.hl.val as usize) + (to_add as usize) > 0xFFFF);
                 self.update_half_carry_flag((self.hl.val & 0xFFF) + (to_add & 0xFFF) & 0x1000 > 0);
                 self.hl.val = self.hl.val.wrapping_add(to_add);
@@ -989,7 +995,6 @@ impl Cpu {
                 },
                 0xF2 => self.af.parts.hi = self.read_memory(0xFF00 + (self.bc.parts.lo as Word)),
                 0xF8 => {
-                    // TODO This one might be wrong
                     let offset = self.get_next_byte_signed();
                     if offset > 0 {
                         self.hl.val = self.stack_pointer.wrapping_add(offset as Word);
@@ -997,8 +1002,8 @@ impl Cpu {
                         self.update_half_carry_flag((self.stack_pointer & 0xF) + ((offset as Word) & 0xF) > 0xF);
                     } else {
                         self.hl.val = self.stack_pointer.wrapping_sub(offset.abs() as Word);
-                        self.update_carry_flag((self.stack_pointer & 0xFF) - ((offset.abs() as Word) & 0xFF) > 0xFF);
-                        self.update_half_carry_flag((self.stack_pointer & 0xF) - ((offset.abs() as Word) & 0xF) > 0xF);
+                        self.update_carry_flag((self.stack_pointer & 0xFF) + ((offset as Word) & 0xFF) > 0xFF);
+                        self.update_half_carry_flag((self.stack_pointer & 0xF) + ((offset as Word) & 0xF) > 0xF);
                     }
 
                     self.update_zero_flag(false);
@@ -1091,7 +1096,15 @@ impl Cpu {
         match opcode.operation {
             Operation::BIT => self.do_bit(&opcode),
             Operation::RES => self.do_res(&opcode),
+            Operation::RL => self.do_rotate_left(&opcode, true),
+            Operation::RLC => self.do_rotate_left(&opcode, false),
+            Operation::RR => self.do_rotate_right(&opcode, true),
+            Operation::RRC => self.do_rotate_right(&opcode, false),
             Operation::SET => self.do_set(&opcode),
+            Operation::SLA => self.do_shift_left(&opcode),
+            Operation::SRA => self.do_shift_right(&opcode, true),
+            Operation::SRL => self.do_shift_right(&opcode, false),
+            Operation::SWAP => self.do_swap(&opcode),
             _ => panic!("Operation not found - {}", opcode.operation)
         }
     }
@@ -1139,6 +1152,24 @@ impl Cpu {
             },
             _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
         }
+    }
+
+    fn do_restart(&mut self, opcode: &OpCode) -> u8 {
+        self.push_word_to_stack(self.program_counter);
+
+        match opcode.code {
+            0xC7 => self.program_counter = 0x00,
+            0xCF => self.program_counter = 0x08,
+            0xD7 => self.program_counter = 0x10,
+            0xDF => self.program_counter = 0x18,
+            0xE7 => self.program_counter = 0x20,
+            0xEF => self.program_counter = 0x28,
+            0xF7 => self.program_counter = 0x30,
+            0xFF => self.program_counter = 0x38,
+            _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+        }
+
+        opcode.cycles
     }
 
     fn do_res(&mut self, opcode: &OpCode) -> u8 {
@@ -1264,6 +1295,178 @@ impl Cpu {
         }
     }
 
+    fn do_rotate_left(&mut self, opcode: &OpCode, through_carry: bool) -> u8 {
+        unsafe {
+            let do_rotate = |val: &mut Byte, carry_bit: u8| {
+                let most_significant_bit = get_bit_val(&val, 7);
+                let res = (*val << 1) | (if through_carry { carry_bit } else { most_significant_bit });
+                *val = res;
+                (res, most_significant_bit)
+            };
+
+            let carry_bit = if self.is_carry_flag_set() {1} else {0};
+            let (res, most_significant_bit) = match opcode.code {
+                0x00 => do_rotate(&mut self.bc.parts.hi, carry_bit),
+                0x01 => do_rotate(&mut self.bc.parts.lo, carry_bit),
+                0x02 => do_rotate(&mut self.de.parts.hi, carry_bit),
+                0x03 => do_rotate(&mut self.de.parts.lo, carry_bit),
+                0x04 => do_rotate(&mut self.hl.parts.hi, carry_bit),
+                0x05 => do_rotate(&mut self.hl.parts.lo, carry_bit),
+                0x06 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    let (res, most_significant_bit) = do_rotate(&mut val, carry_bit);
+                    self.write_memory(self.hl.val, val);
+                    (res, most_significant_bit)
+                },
+                0x07 => do_rotate(&mut self.af.parts.hi, carry_bit),
+                0x10 => do_rotate(&mut self.bc.parts.hi, carry_bit),
+                0x11 => do_rotate(&mut self.bc.parts.lo, carry_bit),
+                0x12 => do_rotate(&mut self.de.parts.hi, carry_bit),
+                0x13 => do_rotate(&mut self.de.parts.lo, carry_bit),
+                0x14 => do_rotate(&mut self.hl.parts.hi, carry_bit),
+                0x15 => do_rotate(&mut self.hl.parts.lo, carry_bit),
+                0x16 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    let (res, most_significant_bit) = do_rotate(&mut val, carry_bit);
+                    self.write_memory(self.hl.val, val);
+                    (res, most_significant_bit)
+                },
+                0x17 => do_rotate(&mut self.af.parts.hi, carry_bit),
+                _ => panic!("Unknown prefix operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.update_zero_flag(res == 0);
+            self.update_carry_flag(most_significant_bit == 1);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
+
+            opcode.cycles
+        }
+    }
+
+    fn do_rotate_right(&mut self, opcode: &OpCode, through_carry: bool) -> u8 {
+        unsafe {
+            let do_rotate = |val: &mut Byte, carry_bit: u8| {
+                let least_significant_bit = get_bit_val(&val, 0);
+                let res = (if through_carry { carry_bit << 7 } else { least_significant_bit << 7 }) | (*val >> 1);
+                *val = res;
+                (res, least_significant_bit)
+            };
+
+            let carry_bit = if self.is_carry_flag_set() {1} else {0};
+            let (res, least_significant_bit) = match opcode.code {
+                0x08 => do_rotate(&mut self.bc.parts.hi, carry_bit),
+                0x09 => do_rotate(&mut self.bc.parts.lo, carry_bit),
+                0x0A => do_rotate(&mut self.de.parts.hi, carry_bit),
+                0x0B => do_rotate(&mut self.de.parts.lo, carry_bit),
+                0x0C => do_rotate(&mut self.hl.parts.hi, carry_bit),
+                0x0D => do_rotate(&mut self.hl.parts.lo, carry_bit),
+                0x0E => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    let (res, least_significant_bit) = do_rotate(&mut val, carry_bit);
+                    self.write_memory(self.hl.val, val);
+                    (res, least_significant_bit)
+                },
+                0x0F => do_rotate(&mut self.af.parts.hi, carry_bit),
+                0x18 => do_rotate(&mut self.bc.parts.hi, carry_bit),
+                0x19 => do_rotate(&mut self.bc.parts.lo, carry_bit),
+                0x1A => do_rotate(&mut self.de.parts.hi, carry_bit),
+                0x1B => do_rotate(&mut self.de.parts.lo, carry_bit),
+                0x1C => do_rotate(&mut self.hl.parts.hi, carry_bit),
+                0x1D => do_rotate(&mut self.hl.parts.lo, carry_bit),
+                0x1E => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    let (res, least_significant_bit) = do_rotate(&mut val, carry_bit);
+                    self.write_memory(self.hl.val, val);
+                    (res, least_significant_bit)
+                },
+                0x1F => do_rotate(&mut self.af.parts.hi, carry_bit),
+                _ => panic!("Unknown prefix operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.update_zero_flag(res == 0);
+            self.update_carry_flag(least_significant_bit == 1);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
+
+            opcode.cycles
+        }
+    }
+
+    fn do_rla(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let most_significant_bit = get_bit_val(&self.af.parts.hi, 7);
+            let carry_bit = if self.is_carry_flag_set() {1} else {0};
+            let res = (self.af.parts.hi << 1) | carry_bit;
+
+            self.update_zero_flag(false);
+            self.update_carry_flag(most_significant_bit == 1);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
+
+            self.af.parts.hi = res;
+
+            opcode.cycles
+        }
+    }
+
+    fn do_rlca(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let most_significant_bit = get_bit_val(&self.af.parts.hi, 7);
+            let res = (self.af.parts.hi << 1) | most_significant_bit;
+
+            self.update_zero_flag(false);
+            self.update_carry_flag(most_significant_bit == 1);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
+
+            self.af.parts.hi = res;
+
+            opcode.cycles
+        }
+    }
+
+    fn do_rra(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let least_significant_bit = get_bit_val(&self.af.parts.hi, 0);
+            let carry_bit = if self.is_carry_flag_set() {1} else {0};
+            let res = (carry_bit << 7) | (self.af.parts.hi >> 1);
+
+            self.update_zero_flag(false);
+            self.update_carry_flag(least_significant_bit == 1);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
+
+            self.af.parts.hi = res;
+
+            opcode.cycles
+        }
+    }
+
+    fn do_rrca(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let least_significant_bit = get_bit_val(&self.af.parts.hi, 0);
+            let res = (least_significant_bit << 7) | (self.af.parts.hi >> 1);
+
+            self.update_zero_flag(false);
+            self.update_carry_flag(least_significant_bit == 1);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
+
+            self.af.parts.hi = res;
+
+            opcode.cycles
+        }
+    }
+
     fn do_set(&mut self, opcode: &OpCode) -> u8 {
 
         unsafe {
@@ -1380,31 +1583,113 @@ impl Cpu {
                     self.write_memory(self.hl.val, val);
                 },
                 0xFF => set_bit(&mut self.af.parts.hi, 7),
-                _ => panic!("Unknown operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+                _ => panic!("Unknown prefix operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
             };
 
             opcode.cycles
         }
     }
 
-    fn do_shift_right(&mut self, opcode: &OpCode, maintain_msb: bool) -> u8 {
-        fn do_shift(val: &mut Byte, maintain_msb: bool) {
-            let most_significant_bit = get_bit_val(&val, 7);
-            let least_significant_bit = get_bit_val(&val, 0);
-            let mut res = *val >> 1;
-            if maintain_msb {
-                res |= (most_significant_bit << 7);
-            }
-
-            *val = res;
-        }
-
-        // self.update_zero_flag(res == 0);
-        // self.update_carry_flag(least_significant_bit == 1);
-        // self.update_half_carry_flag(false);
-        // self.update_sub_flag(false);
-
+    fn do_set_carry_flag(&mut self, opcode: &OpCode) -> u8 {
+        self.update_half_carry_flag(false);
+        self.update_sub_flag(false);
+        self.update_carry_flag(true);
         opcode.cycles
+    }
+
+    fn do_shift_left(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let do_shift = |val: &mut Byte| {
+                let most_significant_bit = get_bit_val(&val, 7);
+                let mut res = *val << 1;
+
+                *val = res;
+                (res, most_significant_bit)
+            };
+
+            let (res, most_significant_bit) = match opcode.code {
+                0x20 => do_shift(&mut self.bc.parts.hi),
+                0x21 => do_shift(&mut self.bc.parts.lo),
+                0x22 => do_shift(&mut self.de.parts.hi),
+                0x23 => do_shift(&mut self.de.parts.lo),
+                0x24 => do_shift(&mut self.hl.parts.hi),
+                0x25 => do_shift(&mut self.hl.parts.lo),
+                0x26 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    let (res, most_significant_bit) = do_shift(&mut val);
+                    self.write_memory(self.hl.val, val);
+                    (res, most_significant_bit)
+                },
+                0x27 => do_shift(&mut self.af.parts.hi),
+                _ => panic!("Unknown prefix operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.update_zero_flag(res == 0);
+            self.update_carry_flag(most_significant_bit == 1);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
+
+            opcode.cycles
+        }
+    }
+
+    fn do_shift_right(&mut self, opcode: &OpCode, maintain_msb: bool) -> u8 {
+        unsafe {
+            let do_shift = |val: &mut Byte| {
+                let most_significant_bit = get_bit_val(&val, 7);
+                let least_significant_bit = get_bit_val(&val, 0);
+                let mut res = *val >> 1;
+                if maintain_msb {
+                    res |= (most_significant_bit << 7);
+                }
+
+                *val = res;
+                (res, least_significant_bit)
+            };
+
+            let (res, least_significant_bit) = match opcode.code {
+                0x28 => do_shift(&mut self.bc.parts.hi),
+                0x29 => do_shift(&mut self.bc.parts.lo),
+                0x2A => do_shift(&mut self.de.parts.hi),
+                0x2B => do_shift(&mut self.de.parts.lo),
+                0x2C => do_shift(&mut self.hl.parts.hi),
+                0x2D => do_shift(&mut self.hl.parts.lo),
+                0x2E => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    let (res, least_significant_bit) = do_shift(&mut val);
+                    self.write_memory(self.hl.val, val);
+                    (res, least_significant_bit)
+                },
+                0x2F => do_shift(&mut self.af.parts.hi),
+                0x38 => do_shift(&mut self.bc.parts.hi),
+                0x39 => do_shift(&mut self.bc.parts.lo),
+                0x3A => do_shift(&mut self.de.parts.hi),
+                0x3B => do_shift(&mut self.de.parts.lo),
+                0x3C => do_shift(&mut self.hl.parts.hi),
+                0x3D => do_shift(&mut self.hl.parts.lo),
+                0x3E => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    let (res, least_significant_bit) = do_shift(&mut val);
+                    self.write_memory(self.hl.val, val);
+                    (res, least_significant_bit)
+                },
+                0x3F => do_shift(&mut &mut self.af.parts.hi),
+                _ => panic!("Unknown prefix operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.update_zero_flag(res == 0);
+            self.update_carry_flag(least_significant_bit == 1);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
+
+            opcode.cycles
+        }
     }
 
     fn do_sub(&mut self, opcode: &OpCode, with_carry: bool) -> u8 {
@@ -1438,10 +1723,46 @@ impl Cpu {
 
             self.update_zero_flag(res == 0);
             self.update_sub_flag(true);
-            self.update_carry_flag(a_reg < to_sub + (carry as Byte));
+            self.update_carry_flag((a_reg as Word) < (to_sub as Word) + (carry as Word));
             self.update_half_carry_flag((a_reg & 0xF) < (to_sub & 0xF) + (carry as Byte));
 
             self.af.parts.hi = res;
+
+            opcode.cycles
+        }
+    }
+
+    fn do_swap(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let swap = |val: &mut Byte| {
+                let res = ((*val & 0xF) << 4) | (*val >> 4);
+                *val = res;
+                res
+            };
+
+            let res = match opcode.code {
+                0x30 => swap(&mut self.bc.parts.hi),
+                0x31 => swap(&mut self.bc.parts.lo),
+                0x32 => swap(&mut self.de.parts.hi),
+                0x33 => swap(&mut self.de.parts.lo),
+                0x34 => swap(&mut self.hl.parts.hi),
+                0x35 => swap(&mut self.hl.parts.lo),
+                0x36 => {
+                    self.sync_cycles(4);
+                    let mut val = self.read_memory(self.hl.val);
+                    self.sync_cycles(4);
+                    let res = swap(&mut val);
+                    self.write_memory(self.hl.val, val);
+                    res
+                },
+                0x37 => swap(&mut self.af.parts.hi),
+                _ => panic!("Unknown prefix operation encountered 0x{:02x} - {}", opcode.code, opcode.mnemonic),
+            };
+
+            self.update_zero_flag(res == 0);
+            self.update_carry_flag(false);
+            self.update_half_carry_flag(false);
+            self.update_sub_flag(false);
 
             opcode.cycles
         }
