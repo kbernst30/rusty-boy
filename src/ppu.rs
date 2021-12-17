@@ -288,6 +288,18 @@ impl Ppu {
         }
     }
 
+    fn get_sprite_height(&mut self, mmu: &Mmu) -> u8 {
+        match is_bit_set(&mmu.read_byte(LCD_CONTROL_ADDR), 2) {
+            true => 16,
+            false => 8
+        }
+    }
+
+    fn get_sprite_tile_data_area(&mut self, mmu: &Mmu) -> Word {
+        // Get the start address for the sprite tiles
+        0x8000
+    }
+
     fn is_background_tile_data_addressing_signed(&mut self, mmu: &Mmu) -> bool {
         // Depending on addressing mode for backgroudn tiles, determine if the identification number
         // for tiles is signed or unsigned. If we are addressing in mode 1 (starting at 0x9000) it should
@@ -323,7 +335,75 @@ impl Ppu {
     }
 
     fn render_sprites(&mut self, mmu: &Mmu) {
+        // Sprite data will be copied into OAM and there are 40 sprites in
+        // total. We need to look at them all to get there data (i.e. position)
+        // and then look up the tiles to draw from there
 
+        let oam_addr = 0xFE00;
+        let current_scanline = self.get_current_scanline(mmu);
+
+        for i in 0..40 {
+            // Each sprite occupies 4 bytes in OAM, This info is taken from pan docs
+            // Byte 0 = Y Position + 16
+            // Byte 1 = X Position + 8
+            // Byte 2 = Tile Index in Tile memory (i.e. 0x8000 + x)
+            // Byte 3 = Sprite Attributes
+            let start_addr = oam_addr + (i * 4);
+            let y_position = mmu.read_byte(start_addr).wrapping_sub(16);
+            let x_position = mmu.read_byte(start_addr + 1).wrapping_sub(8);
+            let tile_idx = mmu.read_byte(start_addr + 2);
+            let attributes = mmu.read_byte(start_addr + 3);
+
+            let sprite_height = self.get_sprite_height(mmu);
+
+            if current_scanline >= y_position && current_scanline < y_position + sprite_height {
+
+                // Get the current line of sprite
+                let mut line = (current_scanline - y_position) as Word;
+
+                // Remember each tile (sprite or background) has two bytes of memory
+                // So do this to get the appropriate address
+                line.wrapping_mul(2);
+
+                // Recall each tile occupies 16 bytes, and so
+                // each line in the sprite is 2 bytes long
+                let tile_line_addr = self.get_sprite_tile_data_area(mmu)
+                    .wrapping_add((tile_idx.wrapping_mul(16)) as Word)
+                    .wrapping_add(line);
+
+                let lo = mmu.read_byte(tile_line_addr);
+                let hi = mmu.read_byte(tile_line_addr + 1);
+
+                for j in (0..8).rev() {
+                    let color = self.get_color(mmu, lo, hi, j);
+
+                    // Sprites have "white" as transparent instead of "white", so skip
+                    // this pixel
+                    if color.0 == 0xFF && color.1 == 0xFF && color.2 == 0xFF {
+                        continue;
+                    }
+
+                    let pixel_x = 7 - j + x_position;
+
+                    if current_scanline < 0 || (current_scanline as u32) >= SCREEN_HEIGHT || pixel_x < 0 || (pixel_x as u32) >= SCREEN_WIDTH {
+                        // If we are outside the visible screen do not set data in the screen data as it will error
+                        continue
+                    }
+
+                    // Sprite is only hidden under the background for colors 1 - 3 (so not white)
+                    if is_bit_set(&attributes, 7) && self.is_pixel_white(pixel_x, current_scanline) {
+                        continue
+                    }
+
+                    let base = ((current_scanline as u32) * 3 * SCREEN_WIDTH + (pixel_x as u32) * 3) as usize;
+                    if base + 2 < self.screen.len() {
+                        self.screen[base] = color.0;
+                        self.screen[base + 1] = color.1;
+                        self.screen[base + 2] = color.2;
+                    }
+                }
+            }
+        }
     }
 
     fn get_background_tile_pixels(&mut self, mmu: &Mmu, y: Byte) -> [(Byte, Byte, Byte); SCREEN_WIDTH as usize] {
@@ -398,5 +478,11 @@ impl Ppu {
         *GB_COLORS
             .get(&color)
             .expect(&format!("Color {} is not recognized", color))
+    }
+
+    fn is_pixel_white(&self, x: u8, y: u8) -> bool {
+        let base = ((y as u32) * 3 * SCREEN_WIDTH + (x as u32) * 3) as usize;
+        let pixel = (self.screen[base], self.screen[base + 1], self.screen[base + 2]);
+        pixel.0 == 0xFF && pixel.1 == 0xFF && pixel.2 == 0xFF
     }
 }
