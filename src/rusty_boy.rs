@@ -39,6 +39,8 @@ impl RustyBoy {
             // interrupt = self.interrupts.get_servicable_interrupt()
             // if interrupt is not None:
             //     self.cpu.service_interrupt(interrupt)
+
+            self.cpu.handle_interrupts();
         }
     }
 

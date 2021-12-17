@@ -91,7 +91,7 @@ impl Mmu {
         self.memory[JOYPAD_REGISTER_ADDR as usize] = 0xFF;
 
         // TEMP
-        self.memory[0xFF44] = 0x90;
+        // self.memory[0xFF44] = 0x90;
 
         self.rom_bank = 1;
 

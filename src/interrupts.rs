@@ -12,7 +12,6 @@ pub const AVAILABLE_INTERRUPTS: [Interrupt; 5] = [
 pub fn get_servicable_interrupt(mmu: &Mmu) -> Option<Interrupt> {
     for i in 0..AVAILABLE_INTERRUPTS.len() {
         if is_interrupt_enabled(mmu, i) && is_interrupt_requested(mmu, i) {
-            // println!("{}", i);
             return Some(AVAILABLE_INTERRUPTS[i]);
         }
     }

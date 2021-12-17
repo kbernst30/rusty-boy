@@ -157,13 +157,14 @@ impl Cpu {
         // Sync remaining cycles for the instruction
         self.sync_cycles(cycles - self.cycle_tracker);
 
-        // Handle interrupts
+        cycles
+    }
+
+    pub fn handle_interrupts(&mut self) {
         let interrupt_option = get_servicable_interrupt(&self.mmu);
         if let Some(interrupt) = interrupt_option {
             self.service_interrupt(interrupt);
         }
-
-        cycles
     }
 
     fn sync_cycles(&mut self, cycles: u8) {
@@ -178,9 +179,6 @@ impl Cpu {
     }
 
     fn service_interrupt(&mut self, interrupt: Interrupt) {
-        if self.debug_ctr >= 152481 {
-            println!("hmmm");
-        }
         // Unhalt the CPU
         self.halted = false;
 
@@ -227,9 +225,12 @@ impl Cpu {
             }
         }
 
-        if addr == 0xFF0F {
-            println!("WHAT {}", self.debug_ctr);
-        }
+        // if addr == 0xFF0F {
+        //     println!("WHAT {}", self.debug_ctr);
+        // }
+        // if addr == 0xFFFF {
+        //     println!("OOPS {} - {:02X}", self.debug_ctr, data);
+        // }
 
         self.mmu.write_byte(addr, data);
     }
