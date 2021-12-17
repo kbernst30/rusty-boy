@@ -1,5 +1,6 @@
 use crate::cpu::*;
 use crate::mmu::*;
+use crate::ppu::*;
 use crate::rom::*;
 use crate::timer::*;
 use crate::utils::*;
@@ -19,7 +20,9 @@ impl RustyBoy {
 
         let mut timer = Timer::new();
 
-        let mut cpu = Cpu::new(mmu, timer);
+        let mut ppu = Ppu::new();
+
+        let mut cpu = Cpu::new(mmu, timer, ppu);
         cpu.reset();
 
         RustyBoy {
@@ -44,4 +47,7 @@ impl RustyBoy {
         }
     }
 
+    pub fn get_screen(&self) -> &Vec<u8> {
+        self.cpu.get_screen()
+    }
 }

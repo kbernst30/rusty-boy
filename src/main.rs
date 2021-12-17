@@ -6,6 +6,7 @@ pub mod cpu;
 pub mod interrupts;
 pub mod mmu;
 pub mod ops;
+pub mod ppu;
 pub mod rom;
 pub mod rusty_boy;
 pub mod timer;
@@ -49,14 +50,22 @@ fn main() {
     let mut event_pump = sdl_context.event_pump().unwrap();
     canvas.set_scale(DISPLAY_FACTOR as f32, DISPLAY_FACTOR as f32).unwrap();
 
+    let mut creator = canvas.texture_creator();
+    let mut texture = creator
+        .create_texture_target(PixelFormatEnum::RGB24, SCREEN_WIDTH, SCREEN_HEIGHT).unwrap();
+
     // Setup emulator
     let args: Vec<String> = env::args().collect();
     let mut rusty_boy = RustyBoy::new(&args[1]);
 
     'running: loop {
         rusty_boy.run();
+        texture.update(None, rusty_boy.get_screen(), 160 * 3).unwrap();
 
-        canvas.clear();
+        canvas.copy(&texture, None, None).unwrap();
+
+        canvas.present();
+
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit {..} |
@@ -66,8 +75,6 @@ fn main() {
                 _ => {}
             }
         }
-
-        canvas.present();
 
         // Run at Gameboy desired Frame rate
         // ::std::thread::sleep(Duration::new(0, (1_000_000_000.0 / 59.7275f32).floor() as u32));

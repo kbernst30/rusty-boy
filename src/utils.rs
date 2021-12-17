@@ -27,8 +27,39 @@ pub const TIMER_CONTROL_ADDR: Word = 0xFF07;
 pub const CYCLES_PER_DIVIDER_INCREMENT: usize = 256;
 
 // LCD and Graphics
-pub const LCD_CONTROL_ADDR: Word = 0xFF40;  // The address of the LCD control byte
+// LCDC - the main LCD control register, located in memory. The different
+// bits control what and how we display on screen:
+//     7 - LCD/PPU enabled, 0 = disabled, 1 = enabled
+//     6 - Window tile map area, 0 = 0x9800-0x9BFF, 1 = 0x9C00-0x9FFF
+//     5 - Window enabled, 0 = disabled, 1 = enabled
+//     4 - BG and Window tile data area, 0 = 0x8800-0x97FF, 1 = 0x8000-0x8FFFF
+//     3 - BG tile map area, 0 = 0x9800-0x9BFF, 1 = 0x9C00-0x9FFF
+//     2 - Object size, 0 = 8x8, 1 = 8x16
+//     1 - Object enabled, 0 = disabled, 1 = enabled
+//     0 - Background enabled, 0 = disabled, 1 = enabled
+pub const LCD_CONTROL_ADDR: Word = 0xFF40;
+
+// STAT - the main LCD status register, located in memory. The different bits
+// indicate the status of the LCD
+//     6 - LYC = LY Interrupt - if enabled and LYC = LY, request LCD interrupt
+//     5 - Mode 2 (Searching Sprites) interrupt enabled
+//     4 - Mode 1 (VBlank) interrupt enabled
+//     3 - Mode 0 (Hblank) interrupt enabled
+//     2 - LYC = LY - Set if current scanline (LY) is equal to value we are comparing to (LYC)
+//     1, 0 - LCD mode
+//      00: H-Blank Mode
+//      01: V-Blank mode
+//      10: Searching Sprites Atts
+//      11: Transferring Data to LCD driver
 pub const LCD_STATUS_ADDR: Word = 0xFF41;  // The address of the LCD status byte
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum LcdMode {
+    H_BLANK = 0,
+    V_BLANK = 1,
+    SPRITE_SEARCH = 2,
+    LCD_TRANSFER = 3,
+}
 
 // LY - Current Scanline being processed is written to this address
 // This can hold values 0 - 153, but 144-153 indicate VBlank period,
@@ -38,9 +69,9 @@ pub const CURRENT_SCANLINE_ADDR: Word = 0xFF44;
 // LYC - Current scanline compare value
 pub const CURRENT_SCANLINE_COMPARE_ADDR: Word = 0xFF45;
 
-pub const MAX_SCANLINE_VALUE: usize = 153;
+pub const MAX_SCANLINE_VALUE: u8 = 153;
 
-pub const CYCLES_PER_SCANLINE: usize = 456;  // It takes 456 clock cycles to draw one scanline
+pub const CYCLES_PER_SCANLINE: isize = 456;  // It takes 456 clock cycles to draw one scanline
 
 // SCX and SCY registers - Those specify the top-left coordinates
 // of the visible 160×144 pixel area within the 256×256 pixels BG map.
@@ -62,13 +93,6 @@ pub const ROM_BANKING_MODE_ADDR: Word = 0x147;
 pub const RAM_BANK_COUNT_ADDR: Word = 0x148;
 pub const MAXIMUM_RAM_BANKS: usize = 4;
 pub const RAM_BANK_SIZE: usize = 0x2000;  // In bytes
-
-// pub const GB_COLORS: HashMap<u8, u32> = HashMap::from([
-//     (0, 0xFFFFFF),
-//     (1, 0xCCCCCC),
-//     (2, 0x777777),
-//     (3, 0x000000),
-// ]);
 
 // Interrupts
 // Known as IE (Interrupt Enable) register, which denotes which interrupts are currently enabled
@@ -145,9 +169,18 @@ pub fn reset_bit(data: &mut Byte, position: usize) {
     *data &= setter;
 }
 
-pub fn get_bit_val(data: &Byte, position: usize) -> u8 {
+pub fn get_bit_val(data: &Byte, position: u8) -> u8 {
     match (data & (1 << position)) > 0 {
         true => 1,
         false => 0
     }
+}
+
+lazy_static! {
+    pub static ref GB_COLORS: HashMap<u8, (Byte, Byte, Byte)> = HashMap::from([
+        (0, (0xFF, 0xFF, 0xFF)),
+        (1, (0xCC, 0xCC, 0xCC)),
+        (2, (0x77, 0x77, 0x77)),
+        (3, (0x00, 0x00, 0x00)),
+    ]);
 }

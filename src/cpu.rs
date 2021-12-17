@@ -4,6 +4,7 @@ use std::io::prelude::*;
 use crate::interrupts::*;
 use crate::mmu::*;
 use crate::ops::*;
+use crate::ppu::*;
 use crate::timer::*;
 use crate::utils::*;
 
@@ -30,6 +31,7 @@ pub struct Cpu {
     // There is a 2-Byte register for the Program counter and a 2-Byte register for the Stack Pointer
     mmu: Mmu,
     timer: Timer,
+    ppu: Ppu,
     af: RegisterPair,
     bc: RegisterPair,
     de: RegisterPair,
@@ -47,11 +49,12 @@ pub struct Cpu {
 
 impl Cpu {
 
-    pub fn new(mmu: Mmu, timer: Timer) -> Cpu {
+    pub fn new(mmu: Mmu, timer: Timer, ppu: Ppu) -> Cpu {
 
         Cpu {
             mmu: mmu,
             timer: timer,
+            ppu: ppu,
             af: RegisterPair { val: 0 },
             bc: RegisterPair { val: 0 },
             de: RegisterPair { val: 0 },
@@ -167,13 +170,17 @@ impl Cpu {
         }
     }
 
+    pub fn get_screen(&self) -> &Vec<u8> {
+        self.ppu.get_screen()
+    }
+
     fn sync_cycles(&mut self, cycles: u8) {
         // Instructions increment other components clock during execution
         // not all at once - this is used to be able to sync components
         // during execution
 
         self.timer.update(&mut self.mmu, cycles);
-        // self.ppu.update_graphics(cycles)
+        self.ppu.update_graphics(&mut self.mmu, cycles);
 
         self.cycle_tracker += cycles;
     }
