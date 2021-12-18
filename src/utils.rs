@@ -131,15 +131,19 @@ pub enum Interrupt {
 // Bit 0 - P10 Input: Right or A        (0=Pressed) (Read Only)
 pub const JOYPAD_REGISTER_ADDR: Word = 0xFF00;
 
-// Joypad Bits in register
-pub const RIGHT_BUTTON: u8 = 0;
-pub const LEFT_BUTTON: u8 = 1;
-pub const UP_BUTTON: u8 = 2;
-pub const DOWN_BUTTON: u8 = 3;
-pub const START_BUTTON: u8 = 3;
-pub const SELECT_BUTTON: u8 = 2;
-pub const B_BUTTON: u8 = 1;
-pub const A_BUTTON: u8 = 0;
+pub const RIGHT_BUTTON: usize = 0;
+pub const LEFT_BUTTON: usize = 1;
+pub const UP_BUTTON: usize = 2;
+pub const DOWN_BUTTON: usize = 3;
+pub const START_BUTTON: usize = 4;
+pub const SELECT_BUTTON: usize = 5;
+pub const B_BUTTON: usize = 6;
+pub const A_BUTTON: usize = 7;
+
+pub enum JoypadMode {
+    DIRECTION,
+    ACTION,
+}
 
 // Flags
 // The F register contains flags for the CPU. The following bits

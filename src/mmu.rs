@@ -1,5 +1,6 @@
 use std::cmp;
 
+use crate::joypad::*;
 use crate::rom::*;
 use crate::utils::*;
 
@@ -33,11 +34,12 @@ pub struct Mmu {
     number_of_rom_banks: usize,
     timer_frequency_changed: bool,
     rom: Rom,
+    joypad: Joypad,
 }
 
 impl Mmu {
 
-    pub fn new(rom: Rom) -> Mmu {
+    pub fn new(rom: Rom, joypad: Joypad) -> Mmu {
         Mmu {
             memory: [0; MEMORY_SIZE],
             ram_banks: [0; MAXIMUM_RAM_BANKS * RAM_BANK_SIZE],
@@ -50,7 +52,8 @@ impl Mmu {
             mbc2: false,
             number_of_rom_banks: 2,
             timer_frequency_changed: false,
-            rom: rom
+            rom: rom,
+            joypad: joypad
         }
     }
 
@@ -181,6 +184,14 @@ impl Mmu {
         self.memory[DIVIDER_REGISTER_ADDR as usize] = self.memory[DIVIDER_REGISTER_ADDR as usize].wrapping_add(1);
     }
 
+    pub fn set_button_state(&mut self, button: usize) {
+        self.joypad.set_button_state(button);
+    }
+
+    pub fn reset_button_state(&mut self, button: usize) {
+        self.joypad.reset_button_state(button);
+    }
+
     fn load_rom(&mut self) {
         let end_addr = 0x8000;
         for i in 0..cmp::min(end_addr, self.rom.length()) {
@@ -223,15 +234,21 @@ impl Mmu {
     }
 
     fn handle_joypad(&mut self, addr: Word, data: Byte) {
-        // TODO Reimplement this in Rust
-        // mode = None
-        // if not is_bit_set(data, 5):
-        //     mode = JoypadMode.ACTION
-        // elif not is_bit_set(data, 4):
-        //     mode = JoypadMode.DIRECTION
+        // If bit 5 of the data being written is unset, then we should
+        // Fetch the Action buttons, if bit 4 is unset, fetch direction
+        let mode_bits = (data >> 4) & 0x3;
+        let mode = match mode_bits {
+            1 => Some(JoypadMode::ACTION),
+            2 => Some(JoypadMode::DIRECTION),
+            _ => None
+        };
 
-        // lower_nibble = self.joypad.get_buttons_for_mode(mode)
-        // self.memory[addr] = (data & 0xF0) | lower_nibble
+        if let Some(joypad_mode) = mode {
+            let lower_nibble = self.joypad.get_buttons_for_mode(joypad_mode);
+            self.memory[addr as usize] = (data & 0xF0) | lower_nibble;
+        } else {
+            self.memory[addr as usize] = (data & 0xF0) | 0xF;
+        }
     }
 
     fn do_dma_transfer(&mut self, data: Byte) {

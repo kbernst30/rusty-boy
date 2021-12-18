@@ -174,6 +174,14 @@ impl Cpu {
         self.ppu.get_screen()
     }
 
+    pub fn set_button_state(&mut self, button: usize) {
+        self.mmu.set_button_state(button);
+    }
+
+    pub fn reset_button_state(&mut self, button: usize) {
+        self.mmu.reset_button_state(button);
+    }
+
     fn sync_cycles(&mut self, cycles: u8) {
         // Instructions increment other components clock during execution
         // not all at once - this is used to be able to sync components

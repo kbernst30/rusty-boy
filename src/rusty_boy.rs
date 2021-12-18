@@ -1,4 +1,5 @@
 use crate::cpu::*;
+use crate::joypad::*;
 use crate::mmu::*;
 use crate::ppu::*;
 use crate::rom::*;
@@ -15,7 +16,9 @@ impl RustyBoy {
         let rom = Rom::new(file);
         rom.debug_header();
 
-        let mut mmu = Mmu::new(rom);
+        let mut joypad = Joypad::new();
+
+        let mut mmu = Mmu::new(rom, joypad);
         mmu.reset();
 
         let mut timer = Timer::new();
@@ -26,7 +29,7 @@ impl RustyBoy {
         cpu.reset();
 
         RustyBoy {
-            cpu: cpu
+            cpu: cpu,
         }
 
     }
@@ -38,16 +41,19 @@ impl RustyBoy {
             let cycles = self.cpu.execute();
             frame_cycles += cycles as usize;
 
-            // TODO interrupts
-            // interrupt = self.interrupts.get_servicable_interrupt()
-            // if interrupt is not None:
-            //     self.cpu.service_interrupt(interrupt)
-
             self.cpu.handle_interrupts();
         }
     }
 
     pub fn get_screen(&self) -> &Vec<u8> {
         self.cpu.get_screen()
+    }
+
+    pub fn set_button_state(&mut self, button: usize) {
+        self.cpu.set_button_state(button);
+    }
+
+    pub fn reset_button_state(&mut self, button: usize) {
+        self.cpu.reset_button_state(button);
     }
 }

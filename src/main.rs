@@ -4,6 +4,7 @@ extern crate sdl2;
 
 pub mod cpu;
 pub mod interrupts;
+pub mod joypad;
 pub mod mmu;
 pub mod ops;
 pub mod ppu;
@@ -72,6 +73,16 @@ fn main() {
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                     break 'running;
                 },
+                Event::KeyDown { keycode, .. } => {
+                    if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                        rusty_boy.set_button_state(*key);
+                    }
+                }
+                Event::KeyUp { keycode, .. } => {
+                    if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                        rusty_boy.reset_button_state(*key);
+                    }
+                }
                 _ => {}
             }
         }
