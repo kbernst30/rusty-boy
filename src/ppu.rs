@@ -5,7 +5,8 @@ use crate::utils::*;
 
 pub struct Ppu {
     scanline_counter: isize,
-    screen: Vec<u8>  // This needs to be a flat vec so SDL2 can accept this to update the texture
+    screen: Vec<u8>,  // This needs to be a flat vec so SDL2 can accept this to update the texture
+    debug: bool,
 }
 
 impl Ppu {
@@ -13,6 +14,7 @@ impl Ppu {
         Ppu {
             scanline_counter: CYCLES_PER_SCANLINE,
             screen: vec![0; (SCREEN_WIDTH as usize) * (SCREEN_HEIGHT as usize) * 3],
+            debug: true,
         }
     }
 
@@ -359,17 +361,17 @@ impl Ppu {
             if current_scanline >= y_position && current_scanline < y_position + sprite_height {
 
                 // Get the current line of sprite
-                let mut line = (current_scanline - y_position) as Word;
+                let mut line = (current_scanline - y_position) as SignedWord;
 
                 // Remember each tile (sprite or background) has two bytes of memory
                 // So do this to get the appropriate address
-                line.wrapping_mul(2);
+                line *= 2;
 
                 // Recall each tile occupies 16 bytes, and so
                 // each line in the sprite is 2 bytes long
                 let tile_line_addr = self.get_sprite_tile_data_area(mmu)
-                    .wrapping_add((tile_idx.wrapping_mul(16)) as Word)
-                    .wrapping_add(line);
+                    .wrapping_add((tile_idx as Word) * 16)
+                    .wrapping_add(line as Word);
 
                 let lo = mmu.read_byte(tile_line_addr);
                 let hi = mmu.read_byte(tile_line_addr + 1);
