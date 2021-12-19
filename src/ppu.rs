@@ -444,7 +444,11 @@ impl Ppu {
             let addr = match is_tile_identifier_signed {
                 true => {
                     let signed_identifier = tile_identifier as SignedByte;
-                    tile_data_addr - ((signed_identifier.abs() as Word) * 16)
+                    if signed_identifier > 0 {
+                        tile_data_addr + ((signed_identifier.abs() as Word) * 16)
+                    } else {
+                        tile_data_addr - ((signed_identifier.abs() as Word) * 16)
+                    }
                 },
                 false => tile_data_addr + ((tile_identifier as Word) * 16)
             };
