@@ -88,7 +88,8 @@ fn main() {
         }
 
         // Run at Gameboy desired Frame rate
-        // ::std::thread::sleep(Duration::new(0, (1_000_000_000.0 / 59.7275f32).floor() as u32));
+        // Framerate should be ~60 FPS but this seems to be closer to reality
+        ::std::thread::sleep(Duration::new(0, (1_000_000_000.0 / 120f32).floor() as u32));
     }
 
     // let mut creator = canvas.texture_creator();

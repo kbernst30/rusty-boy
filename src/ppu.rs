@@ -367,6 +367,11 @@ impl Ppu {
                 // So do this to get the appropriate address
                 line *= 2;
 
+                // if self.debug && i == 4 {
+                    // println!("{:02X} - {:02X} - {:02X} - {:02X}", y_position, x_position, tile_idx, attributes);
+                    // self.debug = false;
+                // }
+
                 // Recall each tile occupies 16 bytes, and so
                 // each line in the sprite is 2 bytes long
                 let tile_line_addr = self.get_sprite_tile_data_area(mmu)
@@ -393,7 +398,7 @@ impl Ppu {
                     }
 
                     // Sprite is only hidden under the background for colors 1 - 3 (so not white)
-                    if is_bit_set(&attributes, 7) && self.is_pixel_white(pixel_x, current_scanline) {
+                    if is_bit_set(&attributes, 7) && !self.is_pixel_white(pixel_x, current_scanline) {
                         continue
                     }
 
