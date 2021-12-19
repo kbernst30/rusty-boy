@@ -168,7 +168,9 @@ impl Ppu {
     fn set_lcd_mode(&mut self, mmu: &mut Mmu, mode: LcdMode) {
         // Set the current LCD mode into the Status register
         let mut current_status = mmu.read_byte(LCD_STATUS_ADDR);
-        current_status |= mode as u8;
+
+        // Mask lower 2 bits and then set mode
+        current_status = (current_status & 0b11111100) ^ (mode as u8);
         mmu.write_byte(LCD_STATUS_ADDR, current_status);
     }
 

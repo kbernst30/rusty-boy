@@ -44,7 +44,9 @@ pub struct Cpu {
     halted: bool,
     cycle_tracker: u8,
     last_op: Option<Operation>,
-    debug_ctr: usize
+    debug_ctr: usize,
+    debug_pc: Word,
+    debug_log: bool,
 }
 
 impl Cpu {
@@ -67,7 +69,9 @@ impl Cpu {
             halted: false,
             cycle_tracker: 0,
             last_op: None,
-            debug_ctr: 0
+            debug_ctr: 0,
+            debug_pc: 0,
+            debug_log: false
         }
 
     }
@@ -96,13 +100,19 @@ impl Cpu {
             .get(&op)
             .expect(&format!("OpCode 0x{:02x} is not recognized", op));
 
-        if self.debug_ctr < 161502 {
+        // if self.program_counter == 0x20a4 {
+        //     println!("STUCK");
+        // }
+
+        // if self.program_counter == 0x0169 || self.debug_log {
             // self.debug();
-            if self.debug_ctr == 152481 {
-                // println!("{:04X} - {}", self.program_counter, self.halted);
-            }
-            self.debug_ctr += 1;
-        }
+            // self.debug_log = true;
+            // if self.debug_ctr == 200 {
+            //     self.debug_log = false;
+            // } else {
+            //     self.debug_ctr += 1;
+            // }
+        // }
 
         // If in HALT mode, don't execute any instructions and incremeny by 1 T-cycle (4 M-cycles)
         if self.halted {
@@ -110,6 +120,7 @@ impl Cpu {
             return 4;
         }
 
+        self.debug_pc = self.program_counter;
         self.program_counter = self.program_counter.wrapping_add(1);
 
         let cycles = match opcode.operation {
@@ -239,13 +250,6 @@ impl Cpu {
                 print!("{}", data as char);
             }
         }
-
-        // if addr == 0xFF0F {
-        //     println!("WHAT {}", self.debug_ctr);
-        // }
-        // if addr == 0xFFFF {
-        //     println!("OOPS {} - {:02X}", self.debug_ctr, data);
-        // }
 
         self.mmu.write_byte(addr, data);
     }
@@ -1890,7 +1894,10 @@ impl Cpu {
             let pc_3 = self.read_memory(self.program_counter + 2);
             let pc_4 = self.read_memory(self.program_counter + 3);
 
-            let line = format!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X})", a, f, b, c, d, e, h, l, sp, pc, pc_1, pc_2, pc_3, pc_4);
+            let stat = self.read_memory(LCD_STATUS_ADDR);
+            let ly = self.read_memory(CURRENT_SCANLINE_ADDR);
+
+            let line = format!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X}) STAT: {:02X} LY: {:02X}", a, f, b, c, d, e, h, l, sp, pc, pc_1, pc_2, pc_3, pc_4, stat, ly);
             if let Err(e) = writeln!(file, "{}", line) {
                 eprintln!("Couldn't write to file: {}", e);
             }
