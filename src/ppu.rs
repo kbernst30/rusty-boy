@@ -362,10 +362,17 @@ impl Ppu {
 
             let sprite_height = self.get_sprite_height(mmu);
 
+            let y_flip = is_bit_set(&attributes, 6);
+            let x_flip = is_bit_set(&attributes, 5);
+
             if current_scanline >= y_position && current_scanline < y_position + sprite_height {
 
                 // Get the current line of sprite
                 let mut line = (current_scanline - y_position) as SignedWord;
+
+                if y_flip {
+                    line = (line - sprite_height as SignedWord) * -1;
+                }
 
                 // Remember each tile (sprite or background) has two bytes of memory
                 // So do this to get the appropriate address
@@ -393,14 +400,20 @@ impl Ppu {
                         false => OBJ_COLOR_PALLETTE_ADDR_0
                     };
 
-                    let color = self.get_color(mmu, lo, hi, j, pallette_addr);
+                    // If we have X Flip, read the sprite in backwards to achieve the flip
+                    let mut color_bit = j as SignedByte;
+                    if x_flip {
+                        color_bit = (color_bit - 7) * -1;
+                    }
+
+                    let color = self.get_color(mmu, lo, hi, color_bit as Byte, pallette_addr);
 
                     // Sprites have "white" as transparent instead of "white", so skip
                     // this pixel
                     // TODO pretty sure this was incorrect
-                    // if color.0 == 0xFF && color.1 == 0xFF && color.2 == 0xFF {
-                    //     // continue;
-                    // }
+                    if color.0 == 0xFF && color.1 == 0xFF && color.2 == 0xFF {
+                        continue;
+                    }
 
                     let pixel_x = 7 - j + x_position;
 
