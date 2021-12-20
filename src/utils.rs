@@ -86,7 +86,9 @@ pub const BACKGROUND_SCROLL_X: Word = 0xFF43;
 pub const WINDOW_POS_Y: Word = 0xFF4A;
 pub const WINDOW_POS_X: Word = 0xFF4B;
 
-pub const COLOR_PALLETTE_ADDR: Word = 0xFF47;
+pub const BG_COLOR_PALLETTE_ADDR: Word = 0xFF47;
+pub const OBJ_COLOR_PALLETTE_ADDR_0: Word = 0xFF48;
+pub const OBJ_COLOR_PALLETTE_ADDR_1: Word = 0xFF49;
 
 // Banking
 pub const ROM_BANKING_MODE_ADDR: Word = 0x147;

@@ -7,6 +7,7 @@ pub struct Ppu {
     scanline_counter: isize,
     screen: Vec<u8>,  // This needs to be a flat vec so SDL2 can accept this to update the texture
     debug: bool,
+    printed: bool,
 }
 
 impl Ppu {
@@ -15,6 +16,7 @@ impl Ppu {
             scanline_counter: CYCLES_PER_SCANLINE,
             screen: vec![0; (SCREEN_WIDTH as usize) * (SCREEN_HEIGHT as usize) * 3],
             debug: true,
+            printed: false
         }
     }
 
@@ -384,13 +386,21 @@ impl Ppu {
                 let hi = mmu.read_byte(tile_line_addr + 1);
 
                 for j in (0..8).rev() {
-                    let color = self.get_color(mmu, lo, hi, j);
+                    // Bit 4 of the Attributes byte tells us which register to use for the
+                    // sprites color pallette, separate from the Background one
+                    let pallette_addr = match is_bit_set(&attributes, 4) {
+                        true => OBJ_COLOR_PALLETTE_ADDR_1,
+                        false => OBJ_COLOR_PALLETTE_ADDR_0
+                    };
+
+                    let color = self.get_color(mmu, lo, hi, j, pallette_addr);
 
                     // Sprites have "white" as transparent instead of "white", so skip
                     // this pixel
-                    if color.0 == 0xFF && color.1 == 0xFF && color.2 == 0xFF {
-                        continue;
-                    }
+                    // TODO pretty sure this was incorrect
+                    // if color.0 == 0xFF && color.1 == 0xFF && color.2 == 0xFF {
+                    //     // continue;
+                    // }
 
                     let pixel_x = 7 - j + x_position;
 
@@ -458,21 +468,25 @@ impl Ppu {
             let tile_data_low = mmu.read_byte(addr + line_offset as Word);
             let tile_data_high = mmu.read_byte(addr + (line_offset as Word) + 1);
 
-            let color = self.get_color(mmu, tile_data_low, tile_data_high, pixel_offfset as u8);
+            let color = self.get_color(mmu, tile_data_low, tile_data_high, pixel_offfset as u8, BG_COLOR_PALLETTE_ADDR);
             pixels[i as usize] = color;
         }
 
         pixels
     }
 
-    fn get_color(&mut self, mmu: &Mmu, tile_data_low: Byte, tile_data_high: Byte, bit: u8) -> (Byte, Byte, Byte) {
+    fn get_color(&mut self, mmu: &Mmu, tile_data_low: Byte, tile_data_high: Byte, bit: u8, pallette_addr: Word) -> (Byte, Byte, Byte) {
         let least_significant_bit = get_bit_val(&tile_data_low, bit);
         let most_significant_bit = get_bit_val(&tile_data_high, bit);
         let color_code = (most_significant_bit << 1) | least_significant_bit;
 
         // this register is where the color pallette is
-        // TODO changes for sprites
-        let pallette = mmu.read_byte(COLOR_PALLETTE_ADDR);
+        // If object (sprite) palette, ignore the least significant bits
+        // as if the color_code is 0, it should be transparent
+        let mut pallette = mmu.read_byte(pallette_addr);
+        if pallette_addr != BG_COLOR_PALLETTE_ADDR {
+            pallette &= 0b11111100;
+        }
 
         // The pallette bits define colors as such (using color ID from 0 - 1)
         // Bit 7-6 - Color for index 3
