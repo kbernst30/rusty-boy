@@ -49,6 +49,10 @@ impl RustyBoy {
         self.cpu.get_screen()
     }
 
+    pub fn get_vram_tiles(&mut self) -> Vec<u8> {
+        self.cpu.get_vram_tiles()
+    }
+
     pub fn set_button_state(&mut self, button: usize) {
         self.cpu.set_button_state(button);
     }

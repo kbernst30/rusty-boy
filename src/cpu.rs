@@ -200,6 +200,10 @@ impl Cpu {
         self.ppu.get_screen()
     }
 
+    pub fn get_vram_tiles(&mut self) -> Vec<u8> {
+        self.ppu.get_tiles(&self.mmu)
+    }
+
     pub fn set_button_state(&mut self, button: usize) {
         self.mmu.set_button_state(button);
     }
