@@ -406,32 +406,28 @@ impl Ppu {
                         color_bit = (color_bit - 7) * -1;
                     }
 
-                    let color = self.get_color(mmu, lo, hi, color_bit as Byte, pallette_addr);
+                    let color_opt = self.get_color(mmu, lo, hi, color_bit as Byte, pallette_addr);
 
-                    // Sprites have "white" as transparent instead of "white", so skip
-                    // this pixel
-                    // TODO pretty sure this was incorrect
-                    if color.0 == 0xFF && color.1 == 0xFF && color.2 == 0xFF {
-                        continue;
-                    }
+                    // If the color came back as Some vs None, then it is NOT transparent
+                    if let Some(color) = color_opt {
+                        let pixel_x = 7 - j + x_position;
 
-                    let pixel_x = 7 - j + x_position;
+                        if current_scanline < 0 || (current_scanline as u32) >= SCREEN_HEIGHT || pixel_x < 0 || (pixel_x as u32) >= SCREEN_WIDTH {
+                            // If we are outside the visible screen do not set data in the screen data as it will error
+                            continue
+                        }
 
-                    if current_scanline < 0 || (current_scanline as u32) >= SCREEN_HEIGHT || pixel_x < 0 || (pixel_x as u32) >= SCREEN_WIDTH {
-                        // If we are outside the visible screen do not set data in the screen data as it will error
-                        continue
-                    }
+                        if is_bit_set(&attributes, 7) && !self.is_pixel_white(pixel_x, current_scanline) {
+                            // Sprite is only hidden under the background for colors 1 - 3 (so not white)
+                            continue
+                        }
 
-                    // Sprite is only hidden under the background for colors 1 - 3 (so not white)
-                    if is_bit_set(&attributes, 7) && !self.is_pixel_white(pixel_x, current_scanline) {
-                        continue
-                    }
-
-                    let base = ((current_scanline as u32) * 3 * SCREEN_WIDTH + (pixel_x as u32) * 3) as usize;
-                    if base + 2 < self.screen.len() {
-                        self.screen[base] = color.0;
-                        self.screen[base + 1] = color.1;
-                        self.screen[base + 2] = color.2;
+                        let base = ((current_scanline as u32) * 3 * SCREEN_WIDTH + (pixel_x as u32) * 3) as usize;
+                        if base + 2 < self.screen.len() {
+                            self.screen[base] = color.0;
+                            self.screen[base + 1] = color.1;
+                            self.screen[base + 2] = color.2;
+                        }
                     }
                 }
             }
@@ -481,14 +477,16 @@ impl Ppu {
             let tile_data_low = mmu.read_byte(addr + line_offset as Word);
             let tile_data_high = mmu.read_byte(addr + (line_offset as Word) + 1);
 
-            let color = self.get_color(mmu, tile_data_low, tile_data_high, pixel_offfset as u8, BG_COLOR_PALLETTE_ADDR);
-            pixels[i as usize] = color;
+            let color_opt = self.get_color(mmu, tile_data_low, tile_data_high, pixel_offfset as u8, BG_COLOR_PALLETTE_ADDR);
+            if let Some(color) = color_opt {
+                pixels[i as usize] = color;
+            }
         }
 
         pixels
     }
 
-    fn get_color(&mut self, mmu: &Mmu, tile_data_low: Byte, tile_data_high: Byte, bit: u8, pallette_addr: Word) -> (Byte, Byte, Byte) {
+    fn get_color(&mut self, mmu: &Mmu, tile_data_low: Byte, tile_data_high: Byte, bit: u8, pallette_addr: Word) -> Option<(Byte, Byte, Byte)> {
         let least_significant_bit = get_bit_val(&tile_data_low, bit);
         let most_significant_bit = get_bit_val(&tile_data_high, bit);
         let color_code = (most_significant_bit << 1) | least_significant_bit;
@@ -497,8 +495,8 @@ impl Ppu {
         // If object (sprite) palette, ignore the least significant bits
         // as if the color_code is 0, it should be transparent
         let mut pallette = mmu.read_byte(pallette_addr);
-        if pallette_addr != BG_COLOR_PALLETTE_ADDR {
-            pallette &= 0b11111100;
+        if pallette_addr != BG_COLOR_PALLETTE_ADDR && color_code == 0 {
+            return None;
         }
 
         // The pallette bits define colors as such (using color ID from 0 - 1)
@@ -515,9 +513,9 @@ impl Ppu {
             _ => panic!("Invalid color code - {}", color_code)
         };
 
-        *GB_COLORS
+        Some(*GB_COLORS
             .get(&color)
-            .expect(&format!("Color {} is not recognized", color))
+            .expect(&format!("Color {} is not recognized", color)))
     }
 
     fn is_pixel_white(&self, x: u8, y: u8) -> bool {
