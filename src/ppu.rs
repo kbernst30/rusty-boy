@@ -61,7 +61,7 @@ impl Ppu {
     // Get all the tiles in VRAM - This is used for debugging purposes
 
         let mut tiles = vec![0; (128 as usize) * (256 as usize) * 3];
-        let counter = 0;
+        let mut counter = 0;
 
         let start_addr: Word = 0x8000;
         let addr_space_len = 8192;
@@ -78,60 +78,32 @@ impl Ppu {
             let byte_1 = mmu.read_byte(addr);
             let byte_2 = mmu.read_byte(addr + 1);
 
-            let tile_num = addr - start_addr;
+            let tile_num = (addr - start_addr) / 16;
             let line = tile_num % 8;
 
             // Loop through pixels left to right as that's the order in the tile (bit 7 - 0)
-            for i in (0..8).rev() {
-                let color_opt = self.get_color(mmu, byte_1, byte_2, i as u8, BG_COLOR_PALLETTE_ADDR);
-                // let base = ((current_scanline as u32) * 3 * SCREEN_WIDTH + i * 3) as usize;
-                if let Some(color) = color_opt {
-                    let base = ((tile_num / 16) * 3 * 128 + ((tile_num % 16) * 3)) as usize;
-                    if base + 2 < tiles.len() {
-                        tiles[base] = color.0;
-                        tiles[base + 1] = color.1;
-                        tiles[base + 2] = color.2;
+            if addr >= 0x8000 && addr < 0x8000 + (16 * 8) {
+                for i in (0..8).rev() {
+                    let color_opt = self.get_color(mmu, byte_1, byte_2, i as u8, BG_COLOR_PALLETTE_ADDR);
+                    // let base = ((current_scanline as u32) * 3 * SCREEN_WIDTH + i * 3) as usize;
+                    if let Some(color) = color_opt {
+                        // let base = ((tile_num / 16) * 3 * 128 + ((tile_num % 16) * 3)) as usize;
+                        let base = ( (((128 * counter) * 3)) + (i * 3) ) as usize;
+                        if base + 2 < tiles.len() {
+                            tiles[base] = color.0;
+                            tiles[base + 1] = color.1;
+                            tiles[base + 2] = color.2;
+                        }
                     }
                 }
-        //         i += 1;
+            }
+
+            counter += 1;
+            if counter == 8 {
+                counter = 0;
             }
         }
 
-        //     for addr in range(start_addr, start_addr + addr_space_len, 2):
-        //         # each tile occupies 16 bytes, and each line in the sprite is 2 bytes long
-        //         # so that makes each tile 8x8 pixels
-        //         # We have 2 bytes per line to help determine the "color" of the pixel
-        //         # Each bit in the first byte of a line is the least significant bit of the color ID
-        //         # and the bit in the second byte is the most significant bit. Use the color ID against
-        //         # the pallette to get the appropriate color
-        //         byte_1 = self.memory.read_byte(addr)
-        //         byte_2 = self.memory.read_byte(addr + 1)
-
-        //         counter += 2
-
-        //         line = []
-
-        //         # Loop through pixels left to right as that's the order in the tile (bit 7 - 0)
-        //         for i in range(7, -1, -1):
-        //             least_significant_bit = get_bit_val(byte_1, i)
-        //             most_significant_bit = get_bit_val(byte_2, i)
-        //             color_id = (most_significant_bit << 1) | least_significant_bit
-        //             color = self._get_color_from_id(color_id)
-        //             line.append(color)
-
-        //         current_tile.append(line)
-        //         if counter == 16:
-        //             counter = 0
-        //             tiles.append(current_tile.copy())
-        //             current_tile = []
-
-        // let base = ((current_scanline as u32) * 3 * SCREEN_WIDTH + i * 3) as usize;
-        //         if base + 2 < self.screen.len() {
-        //             self.screen[base] = pixel.0;
-        //             self.screen[base + 1] = pixel.1;
-        //             self.screen[base + 2] = pixel.2;
-        //         }
-        //         i += 1;
 
         tiles
     }
