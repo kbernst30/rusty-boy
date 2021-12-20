@@ -24,14 +24,14 @@ impl Ppu {
         &self.screen
     }
 
-    pub fn update_graphics(&mut self, mmu: &mut Mmu, cycles: u8) {
+    pub fn update_graphics(&mut self, mmu: &mut Mmu, cycles: u8, debug: bool) {
         // Attempt to update the graphics. If we have taken more than the number
         // of cycles needed to update a scanline, it is time to draw it
         //
         // In reality, CPU and PPU are running in parallel but we need to do this
         // a bit more synchornously
 
-        self.update_lcd_status(mmu);
+        self.update_lcd_status(mmu, debug);
 
         // Only update the counter if the LCD is enabled
         if self.is_lcd_enabled(mmu) {
@@ -62,7 +62,7 @@ impl Ppu {
         mmu.read_byte(CURRENT_SCANLINE_ADDR)
     }
 
-    fn update_lcd_status(&mut self, mmu: &mut Mmu) {
+    fn update_lcd_status(&mut self, mmu: &mut Mmu, debug: bool) {
         // Update LCD status to ensure we are correctly drawing graphics depending on the
         // state of the hardware
 
@@ -74,8 +74,9 @@ impl Ppu {
             self.scanline_counter = CYCLES_PER_SCANLINE;
             mmu.reset_scanline();
 
-            // Set VBlank mode to LCD Status
-            self.set_lcd_mode(mmu, LcdMode::V_BLANK);
+            // Set H Blank mode to LCD Status - this sets the mode to 0, which
+            // indicates OAM and VRAM are accessible
+            self.set_lcd_mode(mmu, LcdMode::H_BLANK);
 
             mmu.open_oam_access();
             mmu.open_vram_access();
@@ -133,6 +134,10 @@ impl Ppu {
 
             }
         }
+
+        // if debug {
+        //     println!("{:?}", self.get_lcd_mode(mmu));
+        // }
 
         // IF we changed mode and should interrupt, do it
         if current_mode != self.get_lcd_mode(mmu) && should_request_stat_interrupt {

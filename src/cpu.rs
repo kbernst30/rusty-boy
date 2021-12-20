@@ -114,11 +114,26 @@ impl Cpu {
             // }
         // }
 
+        // self.debug_ctr += 1;
+
+        // if (self.debug_ctr >= 3 && self.program_counter == 0x0BF7) || self.debug_log {
+        //     self.debug();
+        //     self.debug_log = true;
+
+        //     self.debug_ctr += 1;
+
+        //     if self.debug_ctr == 53 {
+        //         self.debug_log = false;
+        //     }
+        // }
+
         // If in HALT mode, don't execute any instructions and incremeny by 1 T-cycle (4 M-cycles)
         if self.halted {
             self.sync_cycles(4);
             return 4;
         }
+
+        // println!("{:04X} - {}", self.program_counter, self.debug_ctr);
 
         self.debug_pc = self.program_counter;
         self.program_counter = self.program_counter.wrapping_add(1);
@@ -199,7 +214,7 @@ impl Cpu {
         // during execution
 
         self.timer.update(&mut self.mmu, cycles);
-        self.ppu.update_graphics(&mut self.mmu, cycles);
+        self.ppu.update_graphics(&mut self.mmu, cycles, self.debug_pc == 0x0B7A);
 
         self.cycle_tracker += cycles;
     }
