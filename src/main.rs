@@ -57,11 +57,11 @@ fn main() {
 
     // VRAM Viewer
     let vram_viewer = video_subsystem
-        .window("VRAM Viewer", (128 * DISPLAY_FACTOR) as u32, (256 * DISPLAY_FACTOR) as u32)
+        .window("VRAM Viewer", (128 * 2) as u32, (256 * 2) as u32)
         .position(0, 0)
         .build().unwrap();
     let mut vram_canvas = vram_viewer.into_canvas().present_vsync().build().unwrap();
-    vram_canvas.set_scale(DISPLAY_FACTOR as f32, DISPLAY_FACTOR as f32).unwrap();
+    vram_canvas.set_scale(2 as f32, 2 as f32).unwrap();
     let mut vram_creator = vram_canvas.texture_creator();
     let mut vram_texture = vram_creator
         .create_texture_target(PixelFormatEnum::RGB24, 128, 256).unwrap();
@@ -87,6 +87,12 @@ fn main() {
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                     break 'running;
                 },
+                Event::KeyDown { keycode: Some(Keycode::P), .. } => {
+                    rusty_boy.toggle_pause();
+                },
+                Event::KeyDown { keycode: Some(Keycode::D), .. } => {
+                    rusty_boy.debug();
+                },
                 Event::KeyDown { keycode, .. } => {
                     if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
                         rusty_boy.set_button_state(*key);
@@ -96,7 +102,7 @@ fn main() {
                     if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
                         rusty_boy.reset_button_state(*key);
                     }
-                }
+                },
                 _ => {}
             }
         }
@@ -105,10 +111,4 @@ fn main() {
         // Framerate should be ~60 FPS but this seems to be closer to reality
         ::std::thread::sleep(Duration::new(0, (1_000_000_000.0 / 120f32).floor() as u32));
     }
-
-    // let mut creator = canvas.texture_creator();
-    // let mut texture = creator
-    //     .create_texture_target(PixelFormatEnum::RGB24, SCREEN_WIDTH, SCREEN_HEIGHT).unwrap();
-
-    // canvas.present();
 }

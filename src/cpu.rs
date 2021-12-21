@@ -76,6 +76,10 @@ impl Cpu {
 
     }
 
+    pub fn debug_ppu(&self) -> String {
+        self.ppu.debug(&self.mmu)
+    }
+
     pub fn reset(&mut self) {
         self.program_counter = PROGRAM_COUNTER_INIT;
         self.stack_pointer = STACK_POINTER_INIT;

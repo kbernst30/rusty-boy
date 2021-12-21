@@ -20,6 +20,15 @@ impl Ppu {
         }
     }
 
+    pub fn debug(&self, mmu: &Mmu) -> String {
+        let ly = self.get_current_scanline(mmu);
+        let stat = mmu.read_byte(LCD_STATUS_ADDR);
+        let lcdc = mmu.read_byte(LCD_CONTROL_ADDR);
+        let bg_tile_area = self.get_background_tile_data_area(mmu);
+
+        format!("LY: 0x{:02X}\nSTAT: 0x{:02X}\nLCDC: 0x{:02X}\nBG Tile Data: 0x{:04X}", ly, stat, lcdc, bg_tile_area)
+    }
+
     pub fn get_screen(&self) -> &Vec<u8> {
         &self.screen
     }
@@ -342,7 +351,7 @@ impl Ppu {
         }
     }
 
-    fn get_background_tile_data_area(&mut self, mmu: &Mmu) -> Word {
+    fn get_background_tile_data_area(&self, mmu: &Mmu) -> Word {
         // Get the start address for the background/window tiles
         match is_bit_set(&mmu.read_byte(LCD_CONTROL_ADDR), 4) {
             true => 0x8000,
@@ -522,7 +531,7 @@ impl Ppu {
                     if signed_identifier > 0 {
                         tile_data_addr + ((signed_identifier.abs() as Word) * 16)
                     } else {
-                        tile_data_addr - ((signed_identifier.abs() as Word) * 16)
+                        tile_data_addr - (((signed_identifier as SignedWord).abs() * 16) as Word)
                     }
                 },
                 false => tile_data_addr + ((tile_identifier as Word) * 16)

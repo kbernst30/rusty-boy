@@ -8,6 +8,7 @@ use crate::utils::*;
 
 pub struct RustyBoy {
     cpu: Cpu,
+    pause: bool,
 }
 
 impl RustyBoy {
@@ -30,6 +31,7 @@ impl RustyBoy {
 
         RustyBoy {
             cpu: cpu,
+            pause: false,
         }
 
     }
@@ -37,11 +39,13 @@ impl RustyBoy {
     pub fn run(&mut self) {
         let mut frame_cycles = 0;
 
-        while frame_cycles < MAX_CYCLES_PER_FRAME {
-            let cycles = self.cpu.execute();
-            frame_cycles += cycles as usize;
+        if !self.pause {
+            while frame_cycles < MAX_CYCLES_PER_FRAME {
+                let cycles = self.cpu.execute();
+                frame_cycles += cycles as usize;
 
-            self.cpu.handle_interrupts();
+                self.cpu.handle_interrupts();
+            }
         }
     }
 
@@ -59,5 +63,17 @@ impl RustyBoy {
 
     pub fn reset_button_state(&mut self, button: usize) {
         self.cpu.reset_button_state(button);
+    }
+
+    pub fn toggle_pause(&mut self) {
+        self.pause = !self.pause;
+        println!("Paused: {}", self.pause);
+    }
+
+    pub fn debug(&self) {
+        if self.pause {
+            println!("\n---------------- PPU ----------------\n");
+            println!("{}", self.cpu.debug_ppu());
+        }
     }
 }
