@@ -25,8 +25,10 @@ impl Ppu {
         let stat = mmu.read_byte(LCD_STATUS_ADDR);
         let lcdc = mmu.read_byte(LCD_CONTROL_ADDR);
         let bg_tile_area = self.get_background_tile_data_area(mmu);
+        let backgroud_scroll_x = self.get_background_scroll_x(mmu);
+        let backgroud_scroll_y = self.get_background_scroll_y(mmu);
 
-        format!("LY: 0x{:02X}\nSTAT: 0x{:02X}\nLCDC: 0x{:02X}\nBG Tile Data: 0x{:04X}", ly, stat, lcdc, bg_tile_area)
+        format!("LY: 0x{:02X}\nSTAT: 0x{:02X}\nLCDC: 0x{:02X}\nBG Tile Data: 0x{:04X}\nBG Scroll X: {}\nBG Scroll Y: {}", ly, stat, lcdc, bg_tile_area, backgroud_scroll_x, backgroud_scroll_y)
     }
 
     pub fn get_screen(&self) -> &Vec<u8> {
@@ -314,12 +316,12 @@ impl Ppu {
         self.is_window_enabled(mmu) && self.get_window_position_y(mmu) <= self.get_current_scanline(mmu)
     }
 
-    fn get_background_scroll_x(&mut self, mmu: &Mmu) -> Byte {
+    fn get_background_scroll_x(&self, mmu: &Mmu) -> Byte {
         // Get the X Scroll position of the background
         mmu.read_byte(BACKGROUND_SCROLL_X)
     }
 
-    fn get_background_scroll_y(&mut self, mmu: &Mmu) -> Byte {
+    fn get_background_scroll_y(&self, mmu: &Mmu) -> Byte {
         // Get the X Scroll position of the background
         mmu.read_byte(BACKGROUND_SCROLL_Y)
     }
@@ -516,8 +518,8 @@ impl Ppu {
                 x = i - window_position_x;
             }
 
-            let x_offset = x / 8;
-            let y_offset = (y as isize / 8) * 32;
+            let x_offset = (x / 8) & 0x1F;
+            let y_offset = (y as usize / 8) * 32;
 
             let tile_identifier = mmu.read_byte(tile_map_addr + (x_offset as Word) + (y_offset as Word));
             let is_tile_identifier_signed = self.is_background_tile_data_addressing_signed(mmu);
