@@ -58,15 +58,15 @@ impl Ppu {
     }
 
     pub fn get_tiles(&mut self, mmu: &Mmu) -> Vec<u8> {
-    // Get all the tiles in VRAM - This is used for debugging purposes
+        // Get all the tiles in VRAM - This is used for debugging purposes
 
         let mut tiles = vec![0; (128 as usize) * (256 as usize) * 3];
-        let mut counter = 0;
+        let mut line = 0;
+        let mut position = 0;
 
         let start_addr: Word = 0x8000;
         let addr_space_len = 8192;
 
-        //     current_tile = []
 
         for addr in (start_addr..(start_addr + addr_space_len)).step_by(2) {
             // each tile occupies 16 bytes, and each line in the sprite is 2 bytes long
@@ -78,32 +78,32 @@ impl Ppu {
             let byte_1 = mmu.read_byte(addr);
             let byte_2 = mmu.read_byte(addr + 1);
 
-            let tile_num = (addr - start_addr) / 16;
-            let line = tile_num % 8;
-
             // Loop through pixels left to right as that's the order in the tile (bit 7 - 0)
-            if addr >= 0x8000 && addr < 0x8000 + (16 * 8) {
-                for i in (0..8).rev() {
-                    let color_opt = self.get_color(mmu, byte_1, byte_2, i as u8, BG_COLOR_PALLETTE_ADDR);
-                    // let base = ((current_scanline as u32) * 3 * SCREEN_WIDTH + i * 3) as usize;
-                    if let Some(color) = color_opt {
-                        // let base = ((tile_num / 16) * 3 * 128 + ((tile_num % 16) * 3)) as usize;
-                        let base = ( (((128 * counter) * 3)) + (i * 3) ) as usize;
-                        if base + 2 < tiles.len() {
-                            tiles[base] = color.0;
-                            tiles[base + 1] = color.1;
-                            tiles[base + 2] = color.2;
-                        }
+            // if addr >= 0x8000 && addr < 0x8000 + (16 * 8) {
+            for i in (0..8).rev() {
+                let color_opt = self.get_color(mmu, byte_1, byte_2, i as u8, BG_COLOR_PALLETTE_ADDR);
+                if let Some(color) = color_opt {
+                    let base = ( (((128 * line) * 3)) + (position * 8 * 3) + ((7 - i) * 3) ) as usize;
+                    if base + 2 < tiles.len() {
+                        tiles[base] = color.0;
+                        tiles[base + 1] = color.1;
+                        tiles[base + 2] = color.2;
                     }
                 }
             }
+            // }
 
-            counter += 1;
-            if counter == 8 {
-                counter = 0;
+            line += 1;
+            if line % 8 == 0 {
+                line -= 8;
+
+                position += 1;
+                if position == 16 {
+                    position = 0;
+                    line += 8;
+                }
             }
         }
-
 
         tiles
     }
