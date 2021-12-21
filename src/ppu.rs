@@ -54,7 +54,6 @@ impl Ppu {
             self.scanline_counter = CYCLES_PER_SCANLINE;
 
             let scanline = mmu.read_byte(CURRENT_SCANLINE_ADDR);
-            mmu.update_scanline();
 
             if scanline == 144 {
                 // Entering VBLANK
@@ -65,6 +64,8 @@ impl Ppu {
             } else {
                 self.draw_scanline(mmu);
             }
+
+            mmu.update_scanline();
         }
     }
 

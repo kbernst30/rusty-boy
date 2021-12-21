@@ -80,6 +80,10 @@ impl Cpu {
         self.ppu.debug(&self.mmu)
     }
 
+    pub fn debug_mmu(&self) -> String {
+        self.mmu.debug()
+    }
+
     pub fn reset(&mut self) {
         self.program_counter = PROGRAM_COUNTER_INIT;
         self.stack_pointer = STACK_POINTER_INIT;
@@ -121,7 +125,7 @@ impl Cpu {
         // self.debug_ctr += 1;
 
         // if (self.debug_ctr >= 3 && self.program_counter == 0x0BF7) || self.debug_log {
-        //     self.debug();
+            // self.debug();
         //     self.debug_log = true;
 
         //     self.debug_ctr += 1;
@@ -1920,7 +1924,9 @@ impl Cpu {
             let stat = self.read_memory(LCD_STATUS_ADDR);
             let ly = self.read_memory(CURRENT_SCANLINE_ADDR);
 
-            let line = format!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X}) STAT: {:02X} LY: {:02X}", a, f, b, c, d, e, h, l, sp, pc, pc_1, pc_2, pc_3, pc_4, stat, ly);
+            let hl = self.hl.val;
+
+            let line = format!("A: {:02X} F: {:02X} B: {:02X} C: {:02X} D: {:02X} E: {:02X} H: {:02X} L: {:02X} SP: {:04X} PC: 00:{:04X} ({:02X} {:02X} {:02X} {:02X}) HL: {:04X} - {}", a, f, b, c, d, e, h, l, sp, pc, pc_1, pc_2, pc_3, pc_4, hl, self.read_memory(self.hl.val));
             if let Err(e) = writeln!(file, "{}", line) {
                 eprintln!("Couldn't write to file: {}", e);
             }

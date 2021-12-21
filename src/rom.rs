@@ -27,8 +27,8 @@ impl Rom {
         println!("\n---------------------------------\n");
     }
 
-    pub fn get_byte(&self, addr: Word) -> Byte {
-        self.data[addr as usize]
+    pub fn get_byte(&self, addr: usize) -> Byte {
+        self.data[addr]
     }
 
     pub fn length(&self) -> usize {

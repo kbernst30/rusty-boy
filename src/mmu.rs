@@ -57,6 +57,10 @@ impl Mmu {
         }
     }
 
+    pub fn debug(&self) -> String {
+        format!("Enable RAM: {}\nROM Bank: {}\nNumber of ROM Banks: {}\n", self.enable_ram, self.rom_bank, self.number_of_rom_banks)
+    }
+
     pub fn reset(&mut self) {
         // Initial MMU state
         self.memory[0xFF05] = 0x00;
@@ -111,9 +115,14 @@ impl Mmu {
         } else if addr >= 0x4000 && addr < 0x8000 {
             // First ROM bank will always be mapped into memory, but anything in this range might
             // use a different bank, so let's find the appropriate bank to read from
-            let resolved_addr = (addr - 0x4000) + (self.rom_bank as u16 * 0x4000);
+            // This address should be bigger than a Word as ROM might have more than can fit into a Word
+            let resolved_addr = (addr as usize - 0x4000) + (self.rom_bank as usize * 0x4000);
             self.rom.get_byte(resolved_addr)
         } else {
+            if addr >= 0xA000 && addr < 0xC000 {
+                // println!("RAM BANKED");
+            }
+
             self.memory[addr as usize]
         }
     }
@@ -195,7 +204,7 @@ impl Mmu {
     fn load_rom(&mut self) {
         let end_addr = 0x8000;
         for i in 0..cmp::min(end_addr, self.rom.length()) {
-            self.memory[i] = self.rom.get_byte(i as Word);
+            self.memory[i] = self.rom.get_byte(i);
         }
 
         // Select proper MBC mode

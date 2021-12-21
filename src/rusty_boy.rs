@@ -74,6 +74,8 @@ impl RustyBoy {
         if self.pause {
             println!("\n---------------- PPU ----------------\n");
             println!("{}", self.cpu.debug_ppu());
+            println!("\n---------------- MMU ----------------\n");
+            println!("{}", self.cpu.debug_mmu());
         }
     }
 }
