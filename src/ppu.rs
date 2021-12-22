@@ -327,10 +327,10 @@ impl Ppu {
         mmu.read_byte(BACKGROUND_SCROLL_Y)
     }
 
-    fn get_window_position_x(&mut self, mmu: &Mmu) -> Byte {
+    fn get_window_position_x(&mut self, mmu: &Mmu) -> isize {
         // Get the X position of the Window
         // Remember the value in the WX register is offset by 7
-        mmu.read_byte(WINDOW_POS_X).wrapping_sub(7)
+        (mmu.read_byte(WINDOW_POS_X) as isize) - 7
     }
 
     fn get_window_position_y(&mut self, mmu: &Mmu) -> Byte {
@@ -514,12 +514,12 @@ impl Ppu {
 
             // If we should draw the window and this pixel is within the range of the window,
             // then adjust the offset accordingly with the window X position
-            let window_position_x = self.get_window_position_x(mmu) as isize;
+            let window_position_x = self.get_window_position_x(mmu);
             if self.should_draw_window(mmu) && i >= window_position_x {
                 x = i - window_position_x;
             }
 
-            let x_offset = (x / 8) & 0x1F;
+            let x_offset = if self.should_draw_window(mmu) && i >= window_position_x { (x / 8) } else { (x / 8) & 0x1F };
             let y_offset = (y as usize / 8) * 32;
 
             let tile_identifier = mmu.read_byte(tile_map_addr + (x_offset as Word) + (y_offset as Word));
