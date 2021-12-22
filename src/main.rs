@@ -14,6 +14,8 @@ pub mod timer;
 pub mod utils;
 
 use std::env;
+use std::fs::File;
+use std::io::prelude::*;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -26,6 +28,40 @@ use sdl2::render::TextureCreator;
 
 use crate::utils::*;
 use crate::rusty_boy::RustyBoy;
+
+// TODO THis isn't the neatest - can refactor i'm sure
+fn save(rom_file: &str, rusty_boy: &RustyBoy) -> std::io::Result<()> {
+    let mut parts = rom_file.split(".");
+    let filename_part = parts.next();
+    if let Some(filename) = filename_part {
+        let mut full_filename = String::from(filename);
+        full_filename.push_str(".sav");
+
+        let ram = rusty_boy.get_external_ram();
+
+        let mut file = File::create(full_filename)?;
+        file.write_all(ram)?;
+    }
+
+    Ok(())
+}
+
+fn load(rom_file: &str, rusty_boy: &mut RustyBoy) -> std::io::Result<()> {
+    let mut parts = rom_file.split(".");
+    let filename_part = parts.next();
+    if let Some(filename) = filename_part {
+        let mut full_filename = String::from(filename);
+        full_filename.push_str(".sav");
+
+        let mut file = File::open(full_filename)?;
+        let mut buffer = Vec::<u8>::new();
+        file.read_to_end(&mut buffer)?;
+
+        rusty_boy.load_external_ram(buffer)
+    }
+
+    Ok(())
+}
 
 fn main() {
     let mut key_map = HashMap::new();
@@ -68,7 +104,11 @@ fn main() {
 
     // Setup emulator
     let args: Vec<String> = env::args().collect();
-    let mut rusty_boy = RustyBoy::new(&args[1]);
+    let rom_file = &args[1];
+    let mut rusty_boy = RustyBoy::new(rom_file);
+
+    // Load save file into RAM
+    load(rom_file, &mut rusty_boy);
 
     'running: loop {
         rusty_boy.run();
@@ -85,6 +125,7 @@ fn main() {
             match event {
                 Event::Quit {..} |
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                    save(rom_file, &rusty_boy);
                     break 'running;
                 },
                 Event::KeyDown { keycode: Some(Keycode::P), .. } => {

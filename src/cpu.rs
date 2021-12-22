@@ -84,6 +84,14 @@ impl Cpu {
         self.mmu.debug()
     }
 
+    pub fn get_external_ram(&self) -> &[Byte] {
+        self.mmu.get_external_ram()
+    }
+
+    pub fn load_external_ram(&mut self, buffer: Vec<Byte>) {
+        self.mmu.load_external_ram(buffer);
+    }
+
     pub fn reset(&mut self) {
         self.program_counter = PROGRAM_COUNTER_INIT;
         self.stack_pointer = STACK_POINTER_INIT;

@@ -70,6 +70,14 @@ impl RustyBoy {
         println!("Paused: {}", self.pause);
     }
 
+    pub fn get_external_ram(&self) -> &[Byte] {
+        self.cpu.get_external_ram()
+    }
+
+    pub fn load_external_ram(&mut self, buffer: Vec<Byte>) {
+        self.cpu.load_external_ram(buffer);
+    }
+
     pub fn debug(&self) {
         if self.pause {
             println!("\n---------------- PPU ----------------\n");

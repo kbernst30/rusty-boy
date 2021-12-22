@@ -61,6 +61,17 @@ impl Mmu {
         format!("Enable RAM: {}\nROM Bank: {}\nNumber of ROM Banks: {}\n", self.enable_ram, self.rom_bank, self.number_of_rom_banks)
     }
 
+    pub fn get_external_ram(&self) -> &[Byte] {
+        &self.memory[0xA000..0xC000]
+    }
+
+    pub fn load_external_ram(&mut self, buffer: Vec<Byte>) {
+        let ram_len = 0xC000 - 0xA000;
+        for i in 0..cmp::min(ram_len, buffer.len()) {
+            self.memory[0xA000 + i] = buffer[i];
+        }
+    }
+
     pub fn reset(&mut self) {
         // Initial MMU state
         self.memory[0xFF05] = 0x00;
