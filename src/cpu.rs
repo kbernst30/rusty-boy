@@ -120,7 +120,7 @@ impl Cpu {
         let op = self.read_memory(self.program_counter);
         let opcode = OPCODE_MAP
             .get(&op)
-            .expect(&format!("OpCode 0x{:02x} is not recognized", op));
+            .expect(&format!("OpCode 0x{:02x} is not recognized at PC - {:04X}", op, self.program_counter));
 
         // self.debug();
 

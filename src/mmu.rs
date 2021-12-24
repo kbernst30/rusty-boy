@@ -1,14 +1,9 @@
 use std::cmp;
 
 use crate::joypad::*;
+use crate::mbc::*;
 use crate::rom::*;
 use crate::utils::*;
-
-#[derive(Debug)]
-enum BankingMode {
-    RAM,
-    ROM
-}
 
 #[derive(Debug)]
 pub struct Mmu {
@@ -29,20 +24,13 @@ pub struct Mmu {
     **/
 
     memory: [Byte; MEMORY_SIZE],
-    ram_banks: [Byte; MAXIMUM_RAM_BANKS * RAM_BANK_SIZE],
-    enable_ram: bool,
     oam_access: bool,
     color_pallette_access: bool,
     vram_access: bool,
-    rom_bank: Byte,
-    ram_bank: Word,
-    mbc1: bool,
-    mbc2: bool,
-    number_of_rom_banks: usize,
     timer_frequency_changed: bool,
     rom: Rom,
     joypad: Joypad,
-    banking_mode: BankingMode,
+    mbc: Option<Box<dyn Mbc>>,
 }
 
 impl Mmu {
@@ -50,35 +38,36 @@ impl Mmu {
     pub fn new(rom: Rom, joypad: Joypad) -> Mmu {
         Mmu {
             memory: [0; MEMORY_SIZE],
-            ram_banks: [0; MAXIMUM_RAM_BANKS * RAM_BANK_SIZE],
-            enable_ram: false,
             oam_access: true,
             color_pallette_access: true,
             vram_access: true,
-            rom_bank: 1,
-            ram_bank: 0,
-            mbc1: false,
-            mbc2: false,
-            number_of_rom_banks: 2,
             timer_frequency_changed: false,
             rom: rom,
             joypad: joypad,
-            banking_mode: BankingMode::ROM
+            mbc: None,
         }
     }
 
     pub fn debug(&self) -> String {
-        format!("Enable RAM: {}\nROM Bank: {}\nNumber of ROM Banks: {}\n", self.enable_ram, self.rom_bank, self.number_of_rom_banks)
+        format!("TODO MMU")
     }
 
     pub fn get_external_ram(&self) -> &[Byte] {
-        &self.ram_banks
+        match &self.mbc {
+            Some(mbc) => mbc.get_external_ram() ,
+            None => &self.memory[0xA000..0xC000]
+        }
     }
 
     pub fn load_external_ram(&mut self, buffer: Vec<Byte>) {
-        let ram_len = self.ram_banks.len();
-        for i in 0..cmp::min(ram_len, buffer.len()) {
-            self.ram_banks[i] = buffer[i];
+        match &mut self.mbc {
+            Some(mbc) => mbc.load_external_ram(buffer),
+            None => {
+                let ram_len = 0xC000 - 0xA000;
+                for i in 0..cmp::min(ram_len, buffer.len()) {
+                    self.memory[0xA000 + i] = buffer[i];
+                }
+            }
         }
     }
 
@@ -121,8 +110,6 @@ impl Mmu {
         // TEMP
         // self.memory[0xFF44] = 0x90;
 
-        self.rom_bank = 1;
-
         self.load_rom();
     }
 
@@ -137,11 +124,10 @@ impl Mmu {
             // First ROM bank will always be mapped into memory, but anything in this range might
             // use a different bank, so let's find the appropriate bank to read from
             // This address should be bigger than a Word as ROM might have more than can fit into a Word
-            let resolved_addr = (addr as usize - 0x4000) + (self.rom_bank as usize * 0x4000);
-            self.rom.get_byte(resolved_addr)
+            self.read_rom_bank(addr)
         } else if addr >= 0xA000 && addr < 0xC000 {
-            self.ram_banks[((addr - 0xA000) as usize) + ((self.ram_bank as usize) * RAM_BANK_SIZE) as usize]
-
+            self.read_ram_bank(addr)
+            
         } else {
             self.memory[addr as usize]
         }
@@ -154,15 +140,11 @@ impl Mmu {
         if !is_writing_restricted_oam && !is_writing_restricted_vram {
             match addr {
                 0x0000..=0x7FFF => self.handle_banking(addr, data),
-
-                // Write to external RAM - choose appropriate Bank
-                0xA000..=0xBFFF => self.ram_banks[((addr - 0xA000) as usize) + ((self.ram_bank as usize) * RAM_BANK_SIZE)] = data,
+                0xA000..=0xBFFF => self.write_ram_bank(addr, data),
                 0xE000..=0xFDFF => {
                     // This is echo RAM so write to Working RAM as well
-                    if self.enable_ram {
-                        self.memory[(addr - 0x2000) as usize] = data;
-                        self.memory[addr as usize] = data;
-                    }
+                    self.memory[(addr - 0x2000) as usize] = data;
+                    self.memory[addr as usize] = data;
                 },
                 0xFEA0..=0xFEFF => (),
                 JOYPAD_REGISTER_ADDR => self.handle_joypad(addr, data),
@@ -236,80 +218,35 @@ impl Mmu {
             self.memory[i] = self.rom.get_byte(i);
         }
 
-        // Select proper MBC mode
-        // TODO this is not clean - might be better way to do this
-        let rom_mode = self.rom.get_cartridge_type();
-        if rom_mode == 1 || rom_mode == 2 || rom_mode == 3 {
-            self.mbc1 = true;
-        } else if rom_mode == 5 || rom_mode == 6 {
-            self.mbc2 = true;
-        }
+        self.mbc = get_mbc(&self.rom)
+    }
 
-        self.number_of_rom_banks = self.rom.get_number_of_banks() as usize;
+    fn read_rom_bank(&self, addr: Word) -> Byte {
+        match &self.mbc {
+            Some(mbc) => mbc.read_rom(addr - 0x4000),
+            None => self.rom.get_byte(addr as usize),
+        }
+    }
+
+    fn read_ram_bank(&self, addr: Word) -> Byte {
+        match &self.mbc {
+            Some(mbc) => mbc.read_ram(addr - 0xA000),
+            None => self.memory[addr as usize],
+        }
+    }
+
+    fn write_ram_bank(&mut self, addr: Word, data: Byte) {
+        match &mut self.mbc {
+            Some(mbc) => mbc.write_ram(addr - 0xA000, data),
+            None => self.memory[addr as usize] = data,
+        }
     }
 
     fn handle_banking(&mut self, addr: Word, data: Byte) {
-        match addr {
-            0x0000..=0x1FFF => if (data & 0xF) == 0xA {self.enable_ram = true} else {self.enable_ram = false},
-            0x2000..=0x3FFF => {
-                if self.mbc1 {
-                    let new_rom_bank = data & 0x1F;
-
-                    // Preserve the high bits and set the lower 5 bits
-                    self.rom_bank = (self.rom_bank & 0b11100000) | new_rom_bank;
-
-                    // I don't know why for sure, but because ROM Bank 0 is written directly to memory and
-                    // we'll always read from there, setting bank to 0 doesn't make sense so incrememnt it
-                    if self.rom_bank == 0 {
-                        println!("LO OOPS");
-                        self.rom_bank += 1;
-                    }
-
-                    if self.rom_bank > self.number_of_rom_banks as u8 {
-                        // If we request a bank greater than what the ROM has, we need to mask
-                        // TODO see pandocs for details
-                        println!("TOO MANY BANK");
-                    }
-                }
-            },
-            0x4000..=0x5FFF => {
-                // Set RAM Bank or ROM bank hi bits depending on banking mode
-                // RAM Bank is set to bottom 3 bits and ROM bank sets the hi bits of its number
-                match self.banking_mode {
-                    BankingMode::RAM => self.ram_bank = (data & 0x03) as Word,
-                    BankingMode::ROM => {
-                        let new_rom_bank = data & 0xE0; // Top 3 bits
-
-                        // Preserve the lo bits and set the higher 3 bits
-                        self.rom_bank = new_rom_bank | (self.rom_bank & 0b00011111);
-                        if self.rom_bank == 0 {
-                            println!("HI OOPS");
-                        }
-
-                        if self.rom_bank > self.number_of_rom_banks as u8 {
-                            // If we request a bank greater than what the ROM has, we need to mask
-                            // TODO see pandocs for details
-                            println!("TOO MANY BANK");
-                            self.rom_bank += 1;
-                        }
-                    },
-                };
-            },
-            0x6000..=0x7FFF => {
-                // For MBC1 Change the Banking mode to either RAM or ROM so we can decide
-                // which bank number to adjust when writing to addr 0x4000 - 0x5FFF
-                // To do this, we check the least signifcant bit of the data being written
-                //   0 = ROM Banking Mode (Default)
-                //   1 = RAM Banking Mode
-                if self.mbc1 {
-                    self.banking_mode = match is_bit_set(&data, 0) {
-                        true => BankingMode::RAM,
-                        false => BankingMode::ROM,
-                    };
-                }
-            },
-            _ => println!("Invalid address {}", addr)
-        };
+        match &mut self.mbc {
+            Some(mbc) => mbc.handle_banking(addr, data),
+            None => {},
+        }
     }
 
     fn handle_joypad(&mut self, addr: Word, data: Byte) {

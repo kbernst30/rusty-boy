@@ -96,6 +96,12 @@ pub const RAM_BANK_COUNT_ADDR: Word = 0x148;
 pub const MAXIMUM_RAM_BANKS: usize = 4;
 pub const RAM_BANK_SIZE: usize = 0x2000;  // In bytes
 
+#[derive(Debug)]
+pub enum BankingMode {
+    RAM,
+    ROM
+}
+
 // Interrupts
 // Known as IE (Interrupt Enable) register, which denotes which interrupts are currently enabled
 // Bit 0 = VBlank Interrupt - INT $40

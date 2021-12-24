@@ -5,6 +5,7 @@ extern crate sdl2;
 pub mod cpu;
 pub mod interrupts;
 pub mod joypad;
+pub mod mbc;
 pub mod mmu;
 pub mod ops;
 pub mod ppu;
