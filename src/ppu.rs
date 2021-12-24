@@ -423,20 +423,23 @@ impl Ppu {
             // Byte 2 = Tile Index in Tile memory (i.e. 0x8000 + x)
             // Byte 3 = Sprite Attributes
             let start_addr = oam_addr + (i * 4);
-            let y_position = mmu.read_byte(start_addr).wrapping_sub(16);
+            let y_position = mmu.read_byte(start_addr) as SignedWord - 16;
             let x_position = mmu.read_byte(start_addr + 1).wrapping_sub(8);
             let tile_idx = mmu.read_byte(start_addr + 2);
             let attributes = mmu.read_byte(start_addr + 3);
 
-            let sprite_height = self.get_sprite_height(mmu);
+            let sprite_height = self.get_sprite_height(mmu) as SignedWord;
 
             let y_flip = is_bit_set(&attributes, 6);
             let x_flip = is_bit_set(&attributes, 5);
 
-            if current_scanline >= y_position && current_scanline < y_position + sprite_height {
+            let is_scanline_below_sprite_start = (current_scanline as SignedWord) >= y_position;
+            let is_scanline_above_sprite_end = (current_scanline as SignedWord) < y_position + sprite_height;
+
+            if is_scanline_below_sprite_start && is_scanline_above_sprite_end {
 
                 // Get the current line of sprite
-                let mut line = (current_scanline - y_position) as SignedWord;
+                let mut line = ((current_scanline as SignedWord) - y_position) as SignedWord;
 
                 if y_flip {
                     line = (line - sprite_height as SignedWord) * -1;
@@ -445,11 +448,6 @@ impl Ppu {
                 // Remember each tile (sprite or background) has two bytes of memory
                 // So do this to get the appropriate address
                 line *= 2;
-
-                // if self.debug && i == 4 {
-                    // println!("{:02X} - {:02X} - {:02X} - {:02X}", y_position, x_position, tile_idx, attributes);
-                    // self.debug = false;
-                // }
 
                 // Recall each tile occupies 16 bytes, and so
                 // each line in the sprite is 2 bytes long

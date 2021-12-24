@@ -94,7 +94,7 @@ fn main() {
     // VRAM Viewer
     let vram_viewer = video_subsystem
         .window("VRAM Viewer", (128 * 2) as u32, (256 * 2) as u32)
-        .position(0, 0)
+        .position(20, 20)
         .build().unwrap();
     let mut vram_canvas = vram_viewer.into_canvas().present_vsync().build().unwrap();
     vram_canvas.set_scale(2 as f32, 2 as f32).unwrap();
@@ -150,6 +150,6 @@ fn main() {
 
         // Run at Gameboy desired Frame rate
         // Framerate should be ~60 FPS but this seems to be closer to reality
-        ::std::thread::sleep(Duration::new(0, (1_000_000_000.0 / 120f32).floor() as u32));
+        // ::std::thread::sleep(Duration::new(0, (1_000_000_000.0 / 120f32).floor() as u32));
     }
 }

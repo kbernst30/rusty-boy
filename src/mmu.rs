@@ -292,8 +292,6 @@ impl Mmu {
                             println!("TOO MANY BANK");
                             self.rom_bank += 1;
                         }
-
-                        println!("{}", self.rom_bank);
                     },
                 };
             },
@@ -344,10 +342,7 @@ impl Mmu {
         let start_addr = data as Word * 0x100;
         for i in 0..0xA0 {
             // Range should be to 0xA0 as it is inclusive of value 0x9F this way
-            // if 0xFE00 + i == 0xFE10 && self.memory[0xFE00 + i] != self.memory[start_addr as usize + i] {
-            //     println!("TEST");
-            // }
-            self.memory[0xFE00 + i] = self.memory[start_addr as usize + i];
+            self.memory[0xFE00 + i] = self.read_byte(start_addr + i as Word);
         }
     }
 

@@ -84,6 +84,8 @@ impl RustyBoy {
             println!("{}", self.cpu.debug_ppu());
             println!("\n---------------- MMU ----------------\n");
             println!("{}", self.cpu.debug_mmu());
+            println!("\n---------------- CPU ----------------\n");
+            println!("{}", self.cpu.debug_cpu());
         }
     }
 }

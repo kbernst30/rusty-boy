@@ -84,6 +84,12 @@ impl Cpu {
         self.mmu.debug()
     }
 
+    pub fn debug_cpu(&self) -> String {
+        unsafe {
+            format!("PC: {:04X}\nSP: {:04X}\nAF: {:04X}\nBC: {:04X}\nDE: {:04X}\nHL: {:04X}\n", self.program_counter, self.stack_pointer, self.af.val, self.bc.val, self.de.val, self.hl.val)
+        }
+    }
+
     pub fn get_external_ram(&self) -> &[Byte] {
         self.mmu.get_external_ram()
     }
@@ -116,32 +122,7 @@ impl Cpu {
             .get(&op)
             .expect(&format!("OpCode 0x{:02x} is not recognized", op));
 
-        // if self.program_counter == 0x20a4 {
-        //     println!("STUCK");
-        // }
-
-        // if self.program_counter == 0x0169 || self.debug_log {
-            // self.debug();
-            // self.debug_log = true;
-            // if self.debug_ctr == 200 {
-            //     self.debug_log = false;
-            // } else {
-            //     self.debug_ctr += 1;
-            // }
-        // }
-
-        // self.debug_ctr += 1;
-
-        // if (self.debug_ctr >= 3 && self.program_counter == 0x0BF7) || self.debug_log {
-            // self.debug();
-        //     self.debug_log = true;
-
-        //     self.debug_ctr += 1;
-
-        //     if self.debug_ctr == 53 {
-        //         self.debug_log = false;
-        //     }
-        // }
+        // self.debug();
 
         // If in HALT mode, don't execute any instructions and incremeny by 1 T-cycle (4 M-cycles)
         if self.halted {
@@ -245,6 +226,7 @@ impl Cpu {
 
         // IF interrupt master switch is enabled, we can go ahead and service
         if self.interrupts_enabled {
+
             let interrupt_bit = AVAILABLE_INTERRUPTS.iter().position(|&i| i == interrupt).unwrap();
 
             // Disable any additional interrupts for now
