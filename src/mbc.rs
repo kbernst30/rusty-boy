@@ -32,8 +32,9 @@ impl fmt::Debug for dyn Mbc {
 pub fn get_mbc(rom: &Rom) -> Option<Box<dyn Mbc>> {
     let rom_mode = rom.get_cartridge_type();
     match rom_mode {
-        1 | 2 | 3 => Some(Box::new(Mbc1::new(rom))),
-        5 | 6 => Some(Box::new(Mbc2::new(rom))),
+        0x01 | 0x02 | 0x03 => Some(Box::new(Mbc1::new(rom))),
+        0x05 | 0x06 => Some(Box::new(Mbc2::new(rom))),
+        0x0F | 0x10 | 0x11 | 0x12 | 0x13 => Some(Box::new(Mbc3::new(rom))), 
         _ => None
     }
 }
@@ -55,6 +56,22 @@ pub struct Mbc2 {
     // MBC2 doesn't really support external ram, rather just 512 bytes of RAM in the MBC
     external_ram: [Byte; 0x200], 
     enable_ram: bool,
+}
+
+pub struct Mbc3 {
+    memory: Vec<Byte>,
+    rom_bank: usize,
+    ram_bank_or_rtc: usize,
+    external_ram: [Byte; MAXIMUM_RAM_BANKS * RAM_BANK_SIZE],
+    enable_ram_and_rtc: bool,
+    number_of_rom_banks: u8,
+
+    // RTC (Real Time Clock) Registers
+    rtc_seconds: Byte,
+    rtc_minutes: Byte,
+    rtc_hours: Byte,
+    rtc_dl: Byte,
+    rtc_dh: Byte,
 }
 
 impl Mbc1 {
@@ -230,6 +247,95 @@ impl Mbc for Mbc2 {
         } else {
             println!("Shouldn't be here for MBC2 - {:04X}", addr);
         }
+    }
+
+    fn get_external_ram(&self) -> &[Byte] {
+        &self.external_ram
+    }
+
+    fn load_external_ram(&mut self, buffer: Vec<Byte>) {
+        let ram_len = self.external_ram.len();
+        for i in 0..cmp::min(ram_len, buffer.len()) {
+            self.external_ram[i] = buffer[i];
+        }
+    }
+}
+
+impl Mbc3 {
+    pub fn new(rom: &Rom) -> Mbc3 {
+        let mut memory = Vec::new();
+        for i in 0..rom.length() {
+            memory.push(rom.get_byte(i));
+        }
+
+        Mbc3 {
+            memory: memory,
+            rom_bank: 1,
+            ram_bank_or_rtc: 0,
+            external_ram: [0; MAXIMUM_RAM_BANKS * RAM_BANK_SIZE],
+            enable_ram_and_rtc: false,
+            number_of_rom_banks: rom.get_number_of_banks() as u8,
+            rtc_seconds: 0,
+            rtc_minutes: 0,
+            rtc_hours: 0,
+            rtc_dl: 0,
+            rtc_dh: 0,
+        }
+    }
+}
+
+impl Mbc for Mbc3 {
+    fn get_mbc_type(&self) -> MbcType {
+        MbcType::MBC3
+    }
+
+    fn read_rom(&self, addr: Word) -> Byte {
+        let resolved_addr = (addr as usize) + (self.rom_bank * 0x4000);
+        self.memory[resolved_addr]
+    }
+
+    fn read_ram(&self, addr: Word) -> Byte {
+        match self.ram_bank_or_rtc {
+            0x00..=0x03 => self.external_ram[(addr as usize) + (self.ram_bank_or_rtc * RAM_BANK_SIZE) as usize],
+            0x08 => self.rtc_seconds,
+            0x09 => self.rtc_minutes,
+            0x0A => self.rtc_hours,
+            0x0B => self.rtc_dl,
+            0x0C => self.rtc_dh,
+            _ => {
+                println!("Invalid value for RAM/RTC bank [{:02X}] for read in MBC3", self.ram_bank_or_rtc);
+                0
+            }
+        }
+    }
+
+    fn write_ram(&mut self, addr: Word, data: Byte) {
+        if self.enable_ram_and_rtc {
+            match self.ram_bank_or_rtc {
+                0x00..=0x03 => self.external_ram[(addr as usize) + (self.ram_bank_or_rtc * RAM_BANK_SIZE)] = data,
+                0x08 => self.rtc_seconds = data,
+                0x09 => self.rtc_minutes = data,
+                0x0A => self.rtc_hours = data,
+                0x0B => self.rtc_dl = data,
+                0x0C => self.rtc_dh = data,
+                _ => println!("Invalid value for RAM/RTC bank [{:02X}] for write in MBC3", self.ram_bank_or_rtc)
+            };
+        }
+    }
+
+    fn handle_banking(&mut self, addr: Word, data: Byte) {
+        match addr {
+            0x0000..=0x1FFF => if (data & 0xF) == 0xA {self.enable_ram_and_rtc = true} else {self.enable_ram_and_rtc = false},
+            0x2000..=0x3FFF => {
+                self.rom_bank = (data & 0x7F) as usize; // 7 lower bits are used here
+                if self.rom_bank == 0 {
+                    self.rom_bank = 1;
+                }
+            },
+            0x4000..=0x5FFF => self.ram_bank_or_rtc = data as usize,
+            0x6000..=0x7FFF => println!("TODO Latch data"),
+            _ => println!("Invalid address {}", addr)
+        };
     }
 
     fn get_external_ram(&self) -> &[Byte] {
