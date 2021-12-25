@@ -33,6 +33,7 @@ pub fn get_mbc(rom: &Rom) -> Option<Box<dyn Mbc>> {
     let rom_mode = rom.get_cartridge_type();
     match rom_mode {
         1 | 2 | 3 => Some(Box::new(Mbc1::new(rom))),
+        5 | 6 => Some(Box::new(Mbc2::new(rom))),
         _ => None
     }
 }
@@ -45,6 +46,15 @@ pub struct Mbc1 {
     enable_ram: bool,
     number_of_rom_banks: u8,
     banking_mode: BankingMode,
+}
+
+pub struct Mbc2 {
+    memory: Vec<Byte>,
+    rom_bank: usize,
+
+    // MBC2 doesn't really support external ram, rather just 512 bytes of RAM in the MBC
+    external_ram: [Byte; 0x200], 
+    enable_ram: bool,
 }
 
 impl Mbc1 {
@@ -141,6 +151,85 @@ impl Mbc for Mbc1 {
             },
             _ => println!("Invalid address {}", addr)
         };
+    }
+
+    fn get_external_ram(&self) -> &[Byte] {
+        &self.external_ram
+    }
+
+    fn load_external_ram(&mut self, buffer: Vec<Byte>) {
+        let ram_len = self.external_ram.len();
+        for i in 0..cmp::min(ram_len, buffer.len()) {
+            self.external_ram[i] = buffer[i];
+        }
+    }
+}
+
+impl Mbc2 {
+
+    pub fn new(rom: &Rom) -> Mbc2 {
+        let mut memory = Vec::new();
+        for i in 0..rom.length() {
+            memory.push(rom.get_byte(i));
+        }
+
+        Mbc2 {
+            memory: memory,
+            rom_bank: 1,
+            external_ram: [0; 0x200], 
+            enable_ram: false,
+        }
+    }
+}
+
+impl Mbc for Mbc2 {
+    fn get_mbc_type(&self) -> MbcType {
+        MbcType::MBC2
+    }
+
+    fn read_rom(&self, addr: Word) -> Byte {
+        let resolved_addr = (addr as usize) + (self.rom_bank * 0x4000);
+        self.memory[resolved_addr]
+    }
+
+    fn read_ram(&self, addr: Word) -> Byte {
+        // Mod by size of RAM to get appropriate address as there are 15 echoes
+        // of RAM we might be addressing - we only need to store this once
+        let resolved_addr = (addr as usize) % 0x200;
+        self.external_ram[resolved_addr]
+    }
+
+    fn write_ram(&mut self, addr: Word, data: Byte) {
+        if self.enable_ram {
+            let resolved_addr = (addr as usize) % 0x200;
+
+            // Only the lower 4 bits of data in RAM are used in MBC2
+            self.external_ram[resolved_addr] = data & 0xF;
+        }
+    }
+
+    fn handle_banking(&mut self, addr: Word, data: Byte) {
+        if addr >= 0x0000 && addr < 0x4000 {
+            let upper_byte = (addr >> 8) as Byte;
+
+            // Check if Bit 8 of the address is set to determine if we are dealing with
+            // RAM or ROM banking
+            match is_bit_set(&upper_byte, 0) {
+                true => {
+                    // CHange ROM Bank to the lower 4 bits of the data
+                    self.rom_bank = (data & 0xF) as usize;
+                    if self.rom_bank == 0{
+                        self.rom_bank = 1;
+                    }
+                },
+                false => {
+                    // Enable RAM if data is 0xA, otherwise disable
+                    self.enable_ram = data == 0xA;
+                }
+            };
+        } else {
+            println!("Shouldn't be here for MBC2 - {:04X}", addr);
+        }
     }
 
     fn get_external_ram(&self) -> &[Byte] {
