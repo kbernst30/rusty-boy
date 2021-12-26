@@ -37,6 +37,7 @@ pub struct Mmu {
     cgb_vram: [Byte; 0x2000 * 2],
     cgb_vram_bank: usize,
     cgb_background_palettes: [Byte; 64],
+    cgb_object_palettes: [Byte; 64],
 }
 
 impl Mmu {
@@ -54,6 +55,7 @@ impl Mmu {
             cgb_vram: [0; 0x2000 * 2],
             cgb_vram_bank: 0,
             cgb_background_palettes: [0; 64],
+            cgb_object_palettes: [0; 64],
         }
     }
 
@@ -174,7 +176,8 @@ impl Mmu {
                 0xFF46 => self.do_dma_transfer(data),
                 0xFF4F => self.do_vram_bank_switch(addr, data),
                 TIMER_CONTROL_ADDR => self.do_timer_control_update(data),
-                BACKGROUND_PALETTE_DATA_ADDR => self.handle_cgb_palette_write(data),
+                BACKGROUND_PALETTE_DATA_ADDR => self.handle_cgb_palette_write(addr, data),
+                OBJECT_PALETTE_DATA_ADDR => self.handle_cgb_palette_write(addr, data),
                 _ => self.memory[addr as usize] = data
             };
         }
@@ -248,6 +251,10 @@ impl Mmu {
         &self.cgb_background_palettes
     }
 
+    pub fn get_cgb_object_palettes(&self) -> &[Byte] {
+        &self.cgb_object_palettes
+    }
+
     fn load_rom(&mut self) {
         let end_addr = 0x8000;
         for i in 0..cmp::min(end_addr, self.rom.length()) {
@@ -302,27 +309,38 @@ impl Mmu {
         self.memory[addr as usize] = data;
     }
 
-    fn handle_cgb_palette_write(&mut self, data: Byte) {
+    fn handle_cgb_palette_write(&mut self, addr: Word, data: Byte) {
+        let palette_index_addr = match addr {
+            BACKGROUND_PALETTE_DATA_ADDR => BACKGROUND_PALETTE_INDEX_ADDR,
+            OBJECT_PALETTE_DATA_ADDR => OBJECT_PALETTE_INDEX_ADDR,
+            _ => panic!("Invalid address used for palette data. Did you call this function by mistake?")
+        };
+
         // In CGB mode, we should handle a proper palette update, in DMG, just write the data to memory
         match self.is_cgb() {
             true => {
                 // We write the data through this register, using the index register to figure out 
                 // which CGB palette byte we should write to. We use the lower 6 bits to get an address
                 // between 0 and 63 (4 bytes per palette and 8 palettes total)
-                let background_palette_index = self.memory[BACKGROUND_PALETTE_INDEX_ADDR as usize];
-                let auto_increment = is_bit_set(&background_palette_index, 7);
-                let mut palette_addr = background_palette_index & 0b111111;  // bottom 6 bits here for addr
-                self.cgb_background_palettes[palette_addr as usize] = data;
+                let palette_index = self.memory[palette_index_addr as usize];
+                let auto_increment = is_bit_set(&palette_index, 7);
+                let mut palette_addr = palette_index & 0b111111;  // bottom 6 bits here for addr
+
+                if addr == BACKGROUND_PALETTE_DATA_ADDR {
+                    self.cgb_background_palettes[palette_addr as usize] = data;
+                } else if addr == OBJECT_PALETTE_DATA_ADDR {
+                    self.cgb_object_palettes[palette_addr as usize] = data;
+                }
 
                 // If the auto increment bit is set, then increment the palette address stored in those lower
                 // 6 bits
                 if auto_increment {
                     palette_addr = (palette_addr + 1) & 0b111111;
-                    let new_idx = (background_palette_index & 0b11000000) | palette_addr;
-                    self.memory[BACKGROUND_PALETTE_INDEX_ADDR as usize] = new_idx;
+                    let new_idx = (palette_index & 0b11000000) | palette_addr;
+                    self.memory[palette_index_addr as usize] = new_idx;
                 }
             },
-            false => self.memory[BACKGROUND_PALETTE_DATA_ADDR as usize] = data
+            false => self.memory[palette_index_addr as usize] = data
         }
     }
 

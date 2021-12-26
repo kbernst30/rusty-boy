@@ -172,6 +172,8 @@ pub const VRAM_DMA_END_ADDR: Word = 0xFF55;
 pub const WRAM_BANK_SELECT_ADDR: Word = 0xFF70;
 pub const BACKGROUND_PALETTE_INDEX_ADDR: Word = 0xFF68;
 pub const BACKGROUND_PALETTE_DATA_ADDR: Word = 0xFF69;
+pub const OBJECT_PALETTE_INDEX_ADDR: Word = 0xFF6A;
+pub const OBJECT_PALETTE_DATA_ADDR: Word = 0xFF6B;
 
 pub fn is_bit_set(data: &Byte, position: usize) -> bool {
     // Return true if bit at position is

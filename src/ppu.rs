@@ -434,6 +434,7 @@ impl Ppu {
 
             let y_flip = is_bit_set(&attributes, 6);
             let x_flip = is_bit_set(&attributes, 5);
+            let palette_num = attributes & 0x7;
 
             let is_scanline_below_sprite_start = (current_scanline as SignedWord) >= y_position;
             let is_scanline_above_sprite_end = (current_scanline as SignedWord) < y_position + sprite_height;
@@ -475,7 +476,16 @@ impl Ppu {
                     }
 
                     let color_code = self.get_color_code(lo, hi, color_bit as Byte);
-                    let color_opt = self.get_dmg_color(mmu, color_code, pallette_addr);
+
+                    // Color code 0 is transparent for sprites
+                    if color_code == 0 {
+                        continue;
+                    }
+
+                    let color_opt = match mmu.is_cgb() {
+                        true => self.get_cgb_color(mmu, color_code, palette_num, mmu.get_cgb_object_palettes()),
+                        false => self.get_dmg_color(mmu, color_code, pallette_addr)
+                    };
 
                     // If the color came back as Some vs None, then it is NOT transparent
                     if let Some(color) = color_opt {
@@ -566,7 +576,7 @@ impl Ppu {
                 true => {
                     // Get the palette number from the lower 3 bits in the bg map attributes
                     let palette_num = bg_map_attributes.unwrap() & 0x7;
-                    self.get_cgb_color(mmu, color_code, palette_num)
+                    self.get_cgb_color(mmu, color_code, palette_num, mmu.get_cgb_background_palettes())
                 },
                 false => self.get_dmg_color(mmu, color_code, BG_COLOR_PALLETTE_ADDR)
             };
@@ -613,11 +623,7 @@ impl Ppu {
             .expect(&format!("Color {} is not recognized", color)))
     }
 
-    fn get_cgb_color(&self, mmu: &Mmu, color_code: u8, palette_num: u8) -> Option<(Byte, Byte, Byte)> {
-        // TODO this only works with Background right now - re-tool for Sprites as necessary
-
-        let palettes = mmu.get_cgb_background_palettes();
-
+    fn get_cgb_color(&self, mmu: &Mmu, color_code: u8, palette_num: u8, palettes: &[Byte]) -> Option<(Byte, Byte, Byte)> {
         // This is the index in CRAM (where palettes are) of the appropriate color, as determined
         // by the color_code from the tile data. Each palette is 8 bytes, so use that to get correct
         // starting byte in CRAM
