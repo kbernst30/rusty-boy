@@ -38,6 +38,10 @@ pub struct Mmu {
     cgb_vram_bank: usize,
     cgb_background_palettes: [Byte; 64],
     cgb_object_palettes: [Byte; 64],
+    cgb_wram_bank: usize,
+
+    // Although there are 8 banks, we will use 0xC000 - 0xCFFF in memory as bank 0 
+    cgb_wram: [Byte; 0x1000 * 7], 
 }
 
 impl Mmu {
@@ -56,6 +60,8 @@ impl Mmu {
             cgb_vram_bank: 0,
             cgb_background_palettes: [0; 64],
             cgb_object_palettes: [0; 64],
+            cgb_wram_bank: 1,
+            cgb_wram: [0; 0x1000 * 7],
         }
     }
 
@@ -151,6 +157,10 @@ impl Mmu {
         } else if addr >= 0xA000 && addr < 0xC000 {
             self.read_ram_bank(addr)
             
+        } else if addr >= 0xD000 && addr < 0xE000 {
+            // This should work for DMG as well as CGB because in DMG, the bank number will never change
+            self.cgb_wram[((addr - 0xD000) as usize) + (0x1000 * (self.cgb_wram_bank - 1))]
+
         } else {
             self.memory[addr as usize]
         }
@@ -165,6 +175,7 @@ impl Mmu {
                 0x0000..=0x7FFF => self.handle_banking(addr, data),
                 0x8000..=0x9FFF => self.handle_vram_write(addr, data),
                 0xA000..=0xBFFF => self.write_ram_bank(addr, data),
+                0xD000..=0xDFFF => self.cgb_wram[((addr - 0xD000) as usize) + (0x1000 * (self.cgb_wram_bank - 1))] = data,
                 0xE000..=0xFDFF => {
                     // This is echo RAM so write to Working RAM as well
                     self.memory[(addr - 0x2000) as usize] = data;
@@ -176,6 +187,13 @@ impl Mmu {
                 0xFF46 => self.do_dma_transfer(data),
                 0xFF4F => self.do_vram_bank_switch(addr, data),
                 TIMER_CONTROL_ADDR => self.do_timer_control_update(data),
+                VRAM_DMA_TRANSFER_ADDR => {
+                    if self.is_cgb() {
+                        println!("DMA TRANSFER FOR VRAM");
+                    }
+                    self.memory[addr as usize] = data;
+                },
+                WRAM_BANK_SELECT_ADDR => self.do_wram_bank_switch(addr, data),
                 BACKGROUND_PALETTE_DATA_ADDR => self.handle_cgb_palette_write(addr, data),
                 OBJECT_PALETTE_DATA_ADDR => self.handle_cgb_palette_write(addr, data),
                 _ => self.memory[addr as usize] = data
@@ -302,8 +320,21 @@ impl Mmu {
 
     fn do_vram_bank_switch(&mut self, addr: Word, data: Byte) {
         if self.is_cgb() {
-            // In color GB, get Bit 0 if data to determine what Bank to use for VRAM
+            // In color GB, get Bit 0 of data to determine what Bank to use for VRAM
             self.cgb_vram_bank = get_bit_val(&data, 0) as usize;
+        }
+
+        self.memory[addr as usize] = data;
+    }
+
+    fn do_wram_bank_switch(&mut self, addr: Word, data: Byte) {
+        if self.is_cgb() {
+            // In color GB, get Bit 0-2 of data to determine what Bank to use for WRAM
+            self.cgb_wram_bank = (data & 0x7) as usize;
+            if self.cgb_wram_bank == 0 {
+                // The 0th bank is always available in memory so writing 0 actually selects 1
+                self.cgb_wram_bank = 1;
+            }
         }
 
         self.memory[addr as usize] = data;

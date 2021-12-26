@@ -168,7 +168,7 @@ pub const CARRY_FLAG: usize = 4;
 // CGB Specifics
 pub const VRAM_BANK_SELECT_ADDR: Word = 0xFF4F;
 pub const VRAM_DMA_START_ADDR: Word = 0xFF51;
-pub const VRAM_DMA_END_ADDR: Word = 0xFF55;
+pub const VRAM_DMA_TRANSFER_ADDR: Word = 0xFF55;
 pub const WRAM_BANK_SELECT_ADDR: Word = 0xFF70;
 pub const BACKGROUND_PALETTE_INDEX_ADDR: Word = 0xFF68;
 pub const BACKGROUND_PALETTE_DATA_ADDR: Word = 0xFF69;
