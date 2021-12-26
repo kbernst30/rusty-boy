@@ -107,6 +107,11 @@ impl Cpu {
         self.de.val = 0x00D8;
         self.hl.val = 0x014D;
 
+        if self.mmu.is_cgb() {
+            // Set A to 0x11 to unlock Color Gameboy functionality
+            self.af.parts.hi = 0x11;
+        }
+
         self.halted = false;
         self.interrupts_enabled = true;
         self.will_disable_interrupts = false;

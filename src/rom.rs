@@ -24,6 +24,7 @@ impl Rom {
         println!("ROM Title: {}", rom_title);
         println!("Cartridge Type: 0x{:02X}", self.data[0x147]);
         println!("Number of Banks: {}", self.get_number_of_banks());
+        println!("CGB: {}", self.is_cgb());
         println!("\n---------------------------------\n");
     }
 
@@ -55,6 +56,10 @@ impl Rom {
             0x54 => 96,
             _ => 2,
         }
+    }
+
+    pub fn is_cgb(&self) -> bool {
+        self.data[0x0143] == 0x80 || self.data[0x0143] == 0xC0
     }
 
 }

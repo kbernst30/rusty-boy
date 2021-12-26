@@ -31,6 +31,12 @@ pub struct Mmu {
     rom: Rom,
     joypad: Joypad,
     mbc: Option<Box<dyn Mbc>>,
+
+    // CGB Specifics
+    // There are 2 VRAM banks, each of size 0x2000
+    cgb_vram: [Byte; 0x2000 * 2],
+    cgb_vram_bank: usize,
+    cgb_background_palettes: [Byte; 64],
 }
 
 impl Mmu {
@@ -45,11 +51,20 @@ impl Mmu {
             rom: rom,
             joypad: joypad,
             mbc: None,
+            cgb_vram: [0; 0x2000 * 2],
+            cgb_vram_bank: 0,
+            cgb_background_palettes: [0; 64],
         }
     }
 
     pub fn debug(&self) -> String {
-        format!("TODO MMU")
+        // format!("TODO MMU")
+        let color_1 = ((self.cgb_background_palettes[57] as Word) << 8) | (self.cgb_background_palettes[56] as Word);
+        let color_2 = ((self.cgb_background_palettes[59] as Word) << 8) | (self.cgb_background_palettes[58] as Word);
+        let color_3 = ((self.cgb_background_palettes[61] as Word) << 8) | (self.cgb_background_palettes[60] as Word);
+        let color_4 = ((self.cgb_background_palettes[63] as Word) << 8) | (self.cgb_background_palettes[62] as Word);
+        
+        format!("BG Palette 7: {:04X} {:04X} {:04X} {:04X}", color_1, color_2, color_3, color_4)
     }
 
     pub fn get_external_ram(&self) -> &[Byte] {
@@ -125,6 +140,12 @@ impl Mmu {
             // use a different bank, so let's find the appropriate bank to read from
             // This address should be bigger than a Word as ROM might have more than can fit into a Word
             self.read_rom_bank(addr)
+
+        } else if addr >= 0x8000 && addr < 0xA000 && self.is_cgb() {
+            // If we are in color game boy mode, then we have multiple banks of VRAM, so we need to ensure
+            // we are reading from the correct bank
+            self.cgb_vram[((addr - 0x8000) as usize) + (0x2000 * self.cgb_vram_bank)]
+        
         } else if addr >= 0xA000 && addr < 0xC000 {
             self.read_ram_bank(addr)
             
@@ -140,6 +161,7 @@ impl Mmu {
         if !is_writing_restricted_oam && !is_writing_restricted_vram {
             match addr {
                 0x0000..=0x7FFF => self.handle_banking(addr, data),
+                0x8000..=0x9FFF => self.handle_vram_write(addr, data),
                 0xA000..=0xBFFF => self.write_ram_bank(addr, data),
                 0xE000..=0xFDFF => {
                     // This is echo RAM so write to Working RAM as well
@@ -150,10 +172,16 @@ impl Mmu {
                 JOYPAD_REGISTER_ADDR => self.handle_joypad(addr, data),
                 DIVIDER_REGISTER_ADDR | CURRENT_SCANLINE_ADDR => self.memory[addr as usize] = 0,
                 0xFF46 => self.do_dma_transfer(data),
+                0xFF4F => self.do_vram_bank_switch(addr, data),
                 TIMER_CONTROL_ADDR => self.do_timer_control_update(data),
+                BACKGROUND_PALETTE_DATA_ADDR => self.handle_cgb_palette_write(data),
                 _ => self.memory[addr as usize] = data
             };
         }
+    }
+
+    pub fn is_cgb(&self) -> bool {
+        self.rom.is_cgb()
     }
 
     pub fn update_timer_frequency_changed(&mut self, val: bool) {
@@ -212,6 +240,14 @@ impl Mmu {
         self.joypad.reset_button_state(button);
     }
 
+    pub fn get_cgb_vram(&self) -> &[Byte] {
+        &self.cgb_vram
+    }
+
+    pub fn get_cgb_background_palettes(&self) -> &[Byte] {
+        &self.cgb_background_palettes
+    }
+
     fn load_rom(&mut self) {
         let end_addr = 0x8000;
         for i in 0..cmp::min(end_addr, self.rom.length()) {
@@ -246,6 +282,47 @@ impl Mmu {
         match &mut self.mbc {
             Some(mbc) => mbc.handle_banking(addr, data),
             None => {},
+        }
+    }
+
+    fn handle_vram_write(&mut self, addr: Word, data: Byte) {
+        // In CGB mode, write to appropriate VRAM Bank 
+        match self.is_cgb() {
+            true => self.cgb_vram[((addr - 0x8000) as usize) + (0x2000 * self.cgb_vram_bank)] = data,
+            false => self.memory[addr as usize] = data,
+        };
+    }
+
+    fn do_vram_bank_switch(&mut self, addr: Word, data: Byte) {
+        if self.is_cgb() {
+            // In color GB, get Bit 0 if data to determine what Bank to use for VRAM
+            self.cgb_vram_bank = get_bit_val(&data, 0) as usize;
+        }
+
+        self.memory[addr as usize] = data;
+    }
+
+    fn handle_cgb_palette_write(&mut self, data: Byte) {
+        // In CGB mode, we should handle a proper palette update, in DMG, just write the data to memory
+        match self.is_cgb() {
+            true => {
+                // We write the data through this register, using the index register to figure out 
+                // which CGB palette byte we should write to. We use the lower 6 bits to get an address
+                // between 0 and 63 (4 bytes per palette and 8 palettes total)
+                let background_palette_index = self.memory[BACKGROUND_PALETTE_INDEX_ADDR as usize];
+                let auto_increment = is_bit_set(&background_palette_index, 7);
+                let mut palette_addr = background_palette_index & 0b111111;  // bottom 6 bits here for addr
+                self.cgb_background_palettes[palette_addr as usize] = data;
+
+                // If the auto increment bit is set, then increment the palette address stored in those lower
+                // 6 bits
+                if auto_increment {
+                    palette_addr = (palette_addr + 1) & 0b111111;
+                    let new_idx = (background_palette_index & 0b11000000) | palette_addr;
+                    self.memory[BACKGROUND_PALETTE_INDEX_ADDR as usize] = new_idx;
+                }
+            },
+            false => self.memory[BACKGROUND_PALETTE_DATA_ADDR as usize] = data
         }
     }
 

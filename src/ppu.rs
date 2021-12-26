@@ -93,7 +93,8 @@ impl Ppu {
             // Loop through pixels left to right as that's the order in the tile (bit 7 - 0)
             // if addr >= 0x8000 && addr < 0x8000 + (16 * 8) {
             for i in (0..8).rev() {
-                let color_opt = self.get_color(mmu, byte_1, byte_2, i as u8, BG_COLOR_PALLETTE_ADDR);
+                let color_code = self.get_color_code(byte_1, byte_2, i as u8);
+                let color_opt = self.get_dmg_color(mmu, color_code, BG_COLOR_PALLETTE_ADDR);
                 if let Some(color) = color_opt {
                     let base = ( (((128 * line) * 3)) + (position * 8 * 3) + ((7 - i) * 3) ) as usize;
                     if base + 2 < tiles.len() {
@@ -221,7 +222,8 @@ impl Ppu {
 
     fn draw_scanline(&mut self, mmu: &Mmu) {
         // Draw a specific scanline to the display
-        if self.is_background_enabled(mmu) {
+        if self.is_background_enabled(mmu) || mmu.is_cgb() {
+            // We should render the BG no matter what in CGB mode, but it will lost all priority over sprites later
             self.render_background(mmu)
         }
 
@@ -472,7 +474,8 @@ impl Ppu {
                         color_bit = (color_bit - 7) * -1;
                     }
 
-                    let color_opt = self.get_color(mmu, lo, hi, color_bit as Byte, pallette_addr);
+                    let color_code = self.get_color_code(lo, hi, color_bit as Byte);
+                    let color_opt = self.get_dmg_color(mmu, color_code, pallette_addr);
 
                     // If the color came back as Some vs None, then it is NOT transparent
                     if let Some(color) = color_opt {
@@ -502,6 +505,7 @@ impl Ppu {
 
     fn get_background_tile_pixels(&mut self, mmu: &Mmu, y: Byte) -> [(Byte, Byte, Byte); SCREEN_WIDTH as usize] {
         let mut pixels = [(0, 0, 0); SCREEN_WIDTH as usize];
+        let cgb_vram = mmu.get_cgb_vram();
 
         for i in 0..(SCREEN_WIDTH as isize) {
             let mut x = self.get_background_scroll_x(mmu) as isize + i;
@@ -520,8 +524,20 @@ impl Ppu {
             let x_offset = if self.should_draw_window(mmu) && i >= window_position_x { (x / 8) } else { (x / 8) & 0x1F };
             let y_offset = (y as usize / 8) * 32;
 
-            let tile_identifier = mmu.read_byte(tile_map_addr + (x_offset as Word) + (y_offset as Word));
+            // If using CGB mode, get the tile identifier from VRAM bank instead of directly from memory
+            let tile_identifier = match mmu.is_cgb() {
+                true => cgb_vram[((tile_map_addr - 0x8000) + (x_offset as Word) + (y_offset as Word)) as usize],
+                false => mmu.read_byte(tile_map_addr + (x_offset as Word) + (y_offset as Word))
+            };
+
             let is_tile_identifier_signed = self.is_background_tile_data_addressing_signed(mmu);
+
+            // get the corresponding tile data in other bank for CGB - this is the bg tile attributes
+            // Basically, the attributes will always be in corresponding address of the identifier in Bank 1 
+            let bg_map_attributes = match mmu.is_cgb() {
+                true => Some(cgb_vram[((tile_map_addr - 0x8000 + 0x2000) + (x_offset as Word) + (y_offset as Word)) as usize]),
+                false => None
+            };
 
             // Recall each tile occupies 16 bytes of memory so ensure we account fo 16 total
             // bytes when finding the right y position.
@@ -543,7 +559,18 @@ impl Ppu {
             let tile_data_low = mmu.read_byte(addr + line_offset as Word);
             let tile_data_high = mmu.read_byte(addr + (line_offset as Word) + 1);
 
-            let color_opt = self.get_color(mmu, tile_data_low, tile_data_high, pixel_offfset as u8, BG_COLOR_PALLETTE_ADDR);
+            // This code (from 0 - 3) determines which color in the palette to use
+            let color_code = self.get_color_code(tile_data_low, tile_data_high, pixel_offfset as u8);
+
+            let color_opt = match mmu.is_cgb() {
+                true => {
+                    // Get the palette number from the lower 3 bits in the bg map attributes
+                    let palette_num = bg_map_attributes.unwrap() & 0x7;
+                    self.get_cgb_color(mmu, color_code, palette_num)
+                },
+                false => self.get_dmg_color(mmu, color_code, BG_COLOR_PALLETTE_ADDR)
+            };
+
             if let Some(color) = color_opt {
                 pixels[i as usize] = color;
             }
@@ -552,11 +579,13 @@ impl Ppu {
         pixels
     }
 
-    fn get_color(&mut self, mmu: &Mmu, tile_data_low: Byte, tile_data_high: Byte, bit: u8, pallette_addr: Word) -> Option<(Byte, Byte, Byte)> {
+    fn get_color_code(&self, tile_data_low: Byte, tile_data_high: Byte, bit: u8) -> u8 {
         let least_significant_bit = get_bit_val(&tile_data_low, bit);
         let most_significant_bit = get_bit_val(&tile_data_high, bit);
-        let color_code = (most_significant_bit << 1) | least_significant_bit;
+        (most_significant_bit << 1) | least_significant_bit
+    }
 
+    fn get_dmg_color(&mut self, mmu: &Mmu, color_code: u8, pallette_addr: Word) -> Option<(Byte, Byte, Byte)> {
         // this register is where the color pallette is
         // If object (sprite) palette, ignore the least significant bits
         // as if the color_code is 0, it should be transparent
@@ -582,6 +611,29 @@ impl Ppu {
         Some(*GB_COLORS
             .get(&color)
             .expect(&format!("Color {} is not recognized", color)))
+    }
+
+    fn get_cgb_color(&self, mmu: &Mmu, color_code: u8, palette_num: u8) -> Option<(Byte, Byte, Byte)> {
+        // TODO this only works with Background right now - re-tool for Sprites as necessary
+
+        let palettes = mmu.get_cgb_background_palettes();
+
+        // This is the index in CRAM (where palettes are) of the appropriate color, as determined
+        // by the color_code from the tile data. Each palette is 8 bytes, so use that to get correct
+        // starting byte in CRAM
+        let palette_start = palette_num * 8;
+
+        // there are 2 bytes per color and in CRAM the colors are little endian, so multiply by 2 to get correct start idx
+        let palette_idx = (palette_start + (color_code * 2)) as usize;
+        let color_hi = palettes[palette_idx + 1] as Word;
+        let color_lo = palettes[palette_idx] as Word;
+        let color = (color_hi << 8) | color_lo;
+
+        let red = get_rgb888((color & 0b11111) as Byte);
+        let green = get_rgb888(((color >> 5) & 0b11111) as Byte);
+        let blue = get_rgb888(((color >> 10) & 0b11111) as Byte);
+
+        Some((red, green, blue))
     }
 
     fn is_pixel_white(&self, x: u8, y: u8) -> bool {

@@ -93,15 +93,15 @@ fn main() {
         .create_texture_target(PixelFormatEnum::RGB24, SCREEN_WIDTH, SCREEN_HEIGHT).unwrap();
 
     // VRAM Viewer
-    let vram_viewer = video_subsystem
-        .window("VRAM Viewer", (128 * 2) as u32, (256 * 2) as u32)
-        .position(20, 20)
-        .build().unwrap();
-    let mut vram_canvas = vram_viewer.into_canvas().present_vsync().build().unwrap();
-    vram_canvas.set_scale(2 as f32, 2 as f32).unwrap();
-    let mut vram_creator = vram_canvas.texture_creator();
-    let mut vram_texture = vram_creator
-        .create_texture_target(PixelFormatEnum::RGB24, 128, 256).unwrap();
+    // let vram_viewer = video_subsystem
+    //     .window("VRAM Viewer", (128 * 2) as u32, (256 * 2) as u32)
+    //     .position(20, 20)
+    //     .build().unwrap();
+    // let mut vram_canvas = vram_viewer.into_canvas().present_vsync().build().unwrap();
+    // vram_canvas.set_scale(2 as f32, 2 as f32).unwrap();
+    // let mut vram_creator = vram_canvas.texture_creator();
+    // let mut vram_texture = vram_creator
+    //     .create_texture_target(PixelFormatEnum::RGB24, 128, 256).unwrap();
 
     // Setup emulator
     let args: Vec<String> = env::args().collect();
@@ -114,13 +114,13 @@ fn main() {
     'running: loop {
         rusty_boy.run();
         texture.update(None, rusty_boy.get_screen(), 160 * 3).unwrap();
-        vram_texture.update(None, &rusty_boy.get_vram_tiles(), 128 * 3).unwrap();
+        // vram_texture.update(None, &rusty_boy.get_vram_tiles(), 128 * 3).unwrap();
 
         canvas.copy(&texture, None, None).unwrap();
-        vram_canvas.copy(&vram_texture, None, None).unwrap();
+        // vram_canvas.copy(&vram_texture, None, None).unwrap();
 
         canvas.present();
-        vram_canvas.present();
+        // vram_canvas.present();
 
         for event in event_pump.poll_iter() {
             match event {

@@ -165,6 +165,14 @@ pub const SUBTRACTION_FLAG: usize = 6;
 pub const HALF_CARRY_FLAG: usize = 5;
 pub const CARRY_FLAG: usize = 4;
 
+// CGB Specifics
+pub const VRAM_BANK_SELECT_ADDR: Word = 0xFF4F;
+pub const VRAM_DMA_START_ADDR: Word = 0xFF51;
+pub const VRAM_DMA_END_ADDR: Word = 0xFF55;
+pub const WRAM_BANK_SELECT_ADDR: Word = 0xFF70;
+pub const BACKGROUND_PALETTE_INDEX_ADDR: Word = 0xFF68;
+pub const BACKGROUND_PALETTE_DATA_ADDR: Word = 0xFF69;
+
 pub fn is_bit_set(data: &Byte, position: usize) -> bool {
     // Return true if bit at position is
     // set in data, false otherwise
@@ -186,6 +194,13 @@ pub fn get_bit_val(data: &Byte, position: u8) -> u8 {
         true => 1,
         false => 0
     }
+}
+
+pub fn get_rgb888(rgb555: Byte) -> Byte {
+    // Data written to CGB palettes are in RGB555 mode (i.e. only using 5 bits) - so convert
+    // to propert RGB888 data to draw the correct color
+    let lo_bits_888 = (rgb555 & 0x1F) >> 2;
+    (rgb555 << 3) | lo_bits_888
 }
 
 lazy_static! {
