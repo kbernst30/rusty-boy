@@ -417,6 +417,7 @@ impl Ppu {
 
         let oam_addr = 0xFE00;
         let current_scanline = self.get_current_scanline(mmu);
+        let cgb_vram = mmu.get_cgb_vram();
 
         for i in 0..40 {
             // Each sprite occupies 4 bytes in OAM, This info is taken from pan docs
@@ -458,8 +459,16 @@ impl Ppu {
                     .wrapping_add((tile_idx as Word) * 16)
                     .wrapping_add(line as Word);
 
-                let lo = mmu.read_byte(tile_line_addr);
-                let hi = mmu.read_byte(tile_line_addr + 1);
+                // If we are in CGB mode, we need to get the tile data from the appropriate VRAM Bank
+                // Based on Bit 3 of the sprite attributes - if in DMG we can just fetch from VRAM in memory
+                let (lo, hi) = match mmu.is_cgb() {
+                    true => {
+                        let vram_bank = get_bit_val(&attributes, 3) as Word;
+                        let banked_addr = ((tile_line_addr - 0x8000) + (vram_bank * 0x2000)) as usize;  // 0x2000 is size of VRAM bank
+                        (cgb_vram[banked_addr], cgb_vram[banked_addr + 1])
+                    },
+                    false => (mmu.read_byte(tile_line_addr), mmu.read_byte(tile_line_addr + 1))
+                };
 
                 for j in (0..8).rev() {
                     // Bit 4 of the Attributes byte tells us which register to use for the
@@ -566,8 +575,17 @@ impl Ppu {
 
             let line_offset = (y % 8) * 2;
             let pixel_offfset = (7 - x).rem_euclid(8);
-            let tile_data_low = mmu.read_byte(addr + line_offset as Word);
-            let tile_data_high = mmu.read_byte(addr + (line_offset as Word) + 1);
+
+            // If we are in CGB mode, we need to get the tile data from the appropriate VRAM Bank
+            // Based on Bit 3 of the bg map attributes - if in DMG we can just fetch from VRAM in memory
+            let (tile_data_low, tile_data_high) = match mmu.is_cgb() {
+                true => {
+                    let vram_bank = get_bit_val(&bg_map_attributes.unwrap(), 3) as Word;
+                    let banked_addr = ((addr - 0x8000) + (vram_bank * 0x2000)) as usize;  // 0x2000 is size of VRAM bank
+                    (cgb_vram[banked_addr + (line_offset as usize)], cgb_vram[banked_addr + (line_offset as usize) + 1])
+                },
+                false => (mmu.read_byte(addr + line_offset as Word), mmu.read_byte(addr + (line_offset as Word) + 1))
+            };
 
             // This code (from 0 - 3) determines which color in the palette to use
             let color_code = self.get_color_code(tile_data_low, tile_data_high, pixel_offfset as u8);
