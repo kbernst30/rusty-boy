@@ -573,16 +573,27 @@ impl Ppu {
                 false => tile_data_addr + ((tile_identifier as Word) * 16)
             };
 
-            let line_offset = (y % 8) * 2;
-            let pixel_offfset = (7 - x).rem_euclid(8);
+            let mut line_offset = ((y % 8) * 2) as isize;
+            let mut pixel_offfset = (7 - x).rem_euclid(8);
 
             // If we are in CGB mode, we need to get the tile data from the appropriate VRAM Bank
             // Based on Bit 3 of the bg map attributes - if in DMG we can just fetch from VRAM in memory
             let (tile_data_low, tile_data_high) = match mmu.is_cgb() {
                 true => {
+                    // Y Flip in CGB mode if Bit 6 of the CGB attributes is set
+                    if is_bit_set(&bg_map_attributes.unwrap(), 6) {
+                        line_offset = ((7 - line_offset/2) << 1);
+                    }
+
+                    // X Flip in CGB mode if Bit 5 of the CGB attributes is set
+                    if is_bit_set(&bg_map_attributes.unwrap(), 5) {
+                        pixel_offfset = (pixel_offfset - 7) * -1;
+                    }
+
                     let vram_bank = get_bit_val(&bg_map_attributes.unwrap(), 3) as Word;
-                    let banked_addr = ((addr - 0x8000) + (vram_bank * 0x2000)) as usize;  // 0x2000 is size of VRAM bank
-                    (cgb_vram[banked_addr + (line_offset as usize)], cgb_vram[banked_addr + (line_offset as usize) + 1])
+                    let banked_addr = ((addr - 0x8000) + (vram_bank * 0x2000)) as isize;  // 0x2000 is size of VRAM bank
+                    let vram_addr = banked_addr + line_offset;
+                    (cgb_vram[vram_addr as usize], cgb_vram[(vram_addr as usize) + 1])
                 },
                 false => (mmu.read_byte(addr + line_offset as Word), mmu.read_byte(addr + (line_offset as Word) + 1))
             };
