@@ -20,6 +20,7 @@ pub trait Mbc {
     fn handle_banking(&mut self, addr: Word, data: Byte);
     fn get_external_ram(&self) -> &[Byte];
     fn load_external_ram(&mut self, buffer: Vec<Byte>);
+    fn debug(&self) -> String;
 }
 
 impl fmt::Debug for dyn Mbc {
@@ -191,6 +192,10 @@ impl Mbc for Mbc1 {
             self.external_ram[i] = buffer[i];
         }
     }
+
+    fn debug(&self) -> String {
+        format!("MBC Type: {:?}\nROM BANK: {}", self.get_mbc_type(), self.rom_bank)
+    }
 }
 
 impl Mbc2 {
@@ -269,6 +274,10 @@ impl Mbc for Mbc2 {
         for i in 0..cmp::min(ram_len, buffer.len()) {
             self.external_ram[i] = buffer[i];
         }
+    }
+
+    fn debug(&self) -> String {
+        format!("MBC Type: {:?}\nROM BANK: {}", self.get_mbc_type(), self.rom_bank)
     }
 }
 
@@ -359,6 +368,10 @@ impl Mbc for Mbc3 {
             self.external_ram[i] = buffer[i];
         }
     }
+
+    fn debug(&self) -> String {
+        format!("MBC Type: {:?}\nROM BANK: {}", self.get_mbc_type(), self.rom_bank)
+    }
 }
 
 impl Mbc5 {
@@ -403,6 +416,7 @@ impl Mbc for Mbc5 {
             0x0000..=0x1FFF => if (data & 0xF) == 0xA {self.enable_ram = true} else {self.enable_ram = false},
             0x2000..=0x2FFF => {
                 // THe bottom 8 bits of rom_bank are set here
+                // println!("Set Bank - {}", data);
                 let bit_9 = self.rom_bank >> 8;
                 self.rom_bank = (bit_9 << 8) | (data as usize);
             },
@@ -425,6 +439,10 @@ impl Mbc for Mbc5 {
         for i in 0..cmp::min(ram_len, buffer.len()) {
             self.external_ram[i] = buffer[i];
         }
+    }
+
+    fn debug(&self) -> String {
+        format!("MBC Type: {:?}\nROM BANK: {}", self.get_mbc_type(), self.rom_bank)
     }
 }
 

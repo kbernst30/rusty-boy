@@ -32,7 +32,8 @@ use crate::rusty_boy::RustyBoy;
 
 // TODO THis isn't the neatest - can refactor i'm sure
 fn save(rom_file: &str, rusty_boy: &RustyBoy) -> std::io::Result<()> {
-    let mut parts = rom_file.split(".");
+    let mut parts = rom_file.rsplit(".");
+    let extension = parts.next();
     let filename_part = parts.next();
     if let Some(filename) = filename_part {
         let mut full_filename = String::from(filename);
@@ -40,7 +41,8 @@ fn save(rom_file: &str, rusty_boy: &RustyBoy) -> std::io::Result<()> {
 
         let ram = rusty_boy.get_external_ram();
 
-        let mut file = File::create(full_filename)?;
+        // concat for Windows - need cross platform workaroudn
+        let mut file = File::create(".".to_owned() + &full_filename)?;
         file.write_all(ram)?;
     }
 
@@ -48,13 +50,14 @@ fn save(rom_file: &str, rusty_boy: &RustyBoy) -> std::io::Result<()> {
 }
 
 fn load(rom_file: &str, rusty_boy: &mut RustyBoy) -> std::io::Result<()> {
-    let mut parts = rom_file.split(".");
+    let mut parts = rom_file.rsplit(".");
+    let extension = parts.next();
     let filename_part = parts.next();
     if let Some(filename) = filename_part {
         let mut full_filename = String::from(filename);
         full_filename.push_str(".sav");
 
-        let mut file = File::open(full_filename)?;
+        let mut file = File::open(".".to_owned() + &full_filename)?;
         let mut buffer = Vec::<u8>::new();
         file.read_to_end(&mut buffer)?;
 

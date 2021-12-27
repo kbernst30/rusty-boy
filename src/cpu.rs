@@ -127,7 +127,9 @@ impl Cpu {
             .get(&op)
             .expect(&format!("OpCode 0x{:02x} is not recognized at PC - {:04X}", op, self.program_counter));
 
-        // self.debug();
+        if self.debug_log {
+            // self.debug();
+        }
 
         // If in HALT mode, don't execute any instructions and incremeny by 1 T-cycle (4 M-cycles)
         if self.halted {
@@ -917,7 +919,7 @@ impl Cpu {
     fn do_jump_relative(&mut self, opcode: &OpCode) -> u8 {
         match opcode.code {
             0x18 => {
-                let offset = self.get_next_byte_signed();
+                let offset = self.get_next_byte_signed() as SignedWord;
                 if offset > 0 {
                     self.program_counter += offset as Word;
                 } else {
@@ -927,7 +929,7 @@ impl Cpu {
                 opcode.cycles
             },
             0x20 => {
-                let offset = self.get_next_byte_signed();
+                let offset = self.get_next_byte_signed() as SignedWord;
                 if !self.is_zero_flag_set() {
                     if offset > 0 {
                         self.program_counter += offset as Word;
@@ -939,7 +941,7 @@ impl Cpu {
                 if self.is_zero_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
             },
             0x28 => {
-                let offset = self.get_next_byte_signed();
+                let offset = self.get_next_byte_signed() as SignedWord;
                 if self.is_zero_flag_set() {
                     if offset > 0 {
                         self.program_counter += offset as Word;
@@ -951,7 +953,7 @@ impl Cpu {
                 if !self.is_zero_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
             },
             0x30 => {
-                let offset = self.get_next_byte_signed();
+                let offset = self.get_next_byte_signed() as SignedWord;
                 if !self.is_carry_flag_set() {
                     if offset > 0 {
                         self.program_counter += offset as Word;
@@ -963,7 +965,7 @@ impl Cpu {
                 if self.is_carry_flag_set() { opcode.alt_cycles.unwrap_or(opcode.cycles) } else { opcode.cycles }
             },
             0x38 => {
-                let offset = self.get_next_byte_signed();
+                let offset = self.get_next_byte_signed() as SignedWord;
                 if self.is_carry_flag_set() {
                     if offset > 0 {
                         self.program_counter += offset as Word;

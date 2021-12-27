@@ -66,13 +66,10 @@ impl Mmu {
     }
 
     pub fn debug(&self) -> String {
-        // format!("TODO MMU")
-        let color_1 = ((self.cgb_background_palettes[57] as Word) << 8) | (self.cgb_background_palettes[56] as Word);
-        let color_2 = ((self.cgb_background_palettes[59] as Word) << 8) | (self.cgb_background_palettes[58] as Word);
-        let color_3 = ((self.cgb_background_palettes[61] as Word) << 8) | (self.cgb_background_palettes[60] as Word);
-        let color_4 = ((self.cgb_background_palettes[63] as Word) << 8) | (self.cgb_background_palettes[62] as Word);
-        
-        format!("BG Palette 7: {:04X} {:04X} {:04X} {:04X}", color_1, color_2, color_3, color_4)
+        match &self.mbc {
+            Some(mbc) => mbc.debug(),
+            None => format!("MBC Type: None"),
+        }
     }
 
     pub fn get_external_ram(&self) -> &[Byte] {
